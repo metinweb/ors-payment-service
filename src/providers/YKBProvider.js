@@ -129,7 +129,7 @@ export default class YKBProvider extends BaseProvider {
    */
   async initialize() {
     const card = this.getCard();
-    const { merchantId, terminalId, username, password, posnetId, secretKey } = this.credentials;
+    const { merchantId, terminalId, posnetId, secretKey } = this.credentials;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmountYKB();
@@ -141,8 +141,6 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
-        username: username,
-        password: password,
         oosRequestData: {
           posnetid: posnetId,
           ccno: card.number.replace(/\s/g, ''),
@@ -307,7 +305,7 @@ export default class YKBProvider extends BaseProvider {
    * Process provision - Step 4: Complete payment
    */
   async processProvision(bankPacket, merchantPacket, sign, decrypted) {
-    const { merchantId, terminalId, username, password, secretKey } = this.credentials;
+    const { merchantId, terminalId, secretKey } = this.credentials;
     const formData = this.transaction.secure?.formData;
 
     // Calculate MAC
@@ -324,8 +322,6 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
-        username: username,
-        password: password,
         oosTranData: {
           mac: macData,
           bankData: bankPacket,
@@ -386,7 +382,7 @@ export default class YKBProvider extends BaseProvider {
    */
   async directPayment() {
     const card = this.getCard();
-    const { merchantId, terminalId, username, password } = this.credentials;
+    const { merchantId, terminalId } = this.credentials;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmountYKB();
@@ -397,8 +393,6 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
-        username: username,
-        password: password,
         sale: {
           amount: amount,
           ccno: card.number.replace(/\s/g, ''),
