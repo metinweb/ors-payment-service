@@ -6,6 +6,7 @@
 import axios from 'axios';
 import https from 'https';
 import xml2js from 'xml2js';
+import { getBankUrls } from '../constants/bankUrls.js';
 
 export const CURRENCY_CODES = {
   try: 949,
@@ -26,7 +27,14 @@ export default class BaseProvider {
     this.transaction = transaction;
     this.pos = virtualPos;
     this.credentials = virtualPos.getDecryptedCredentials();
-    this.urls = virtualPos.urls;
+
+    // Use VirtualPos URLs or fallback to default bank URLs
+    const defaultUrls = getBankUrls(virtualPos.bankCode, virtualPos.testMode);
+    this.urls = {
+      api: virtualPos.urls?.api || defaultUrls?.api,
+      gate: virtualPos.urls?.gate || defaultUrls?.gate,
+      ...virtualPos.urls
+    };
 
     // XML builder/parser
     this.xmlBuilder = new xml2js.Builder({

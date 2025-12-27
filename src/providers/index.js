@@ -4,13 +4,14 @@
 
 import GarantiProvider from './GarantiProvider.js';
 import PaytenProvider from './PaytenProvider.js';
+import YKBProvider from './YKBProvider.js';
 
 const PROVIDERS = {
   garanti: GarantiProvider,
   payten: PaytenProvider,
+  ykb: YKBProvider,
   // TODO: Implement other providers
   akbank: null,
-  ykb: null,
   vakifbank: null,
   qnb: null,
   denizbank: null,
