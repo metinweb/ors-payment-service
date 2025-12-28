@@ -3,7 +3,9 @@
  * Virtual POS payment processing
  */
 
-import 'dotenv/config';
+import { initService } from '@ors/common/config';
+initService('PAYMENT');
+
 import express from 'express';
 import cors from 'cors';
 import https from 'https';
