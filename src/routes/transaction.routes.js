@@ -14,13 +14,17 @@ const router = Router();
  */
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, currency, from, to, startDate, endDate, orderId, company } = req.query;
+    const { page = 1, limit = 20, status, currency, from, to, startDate, endDate, orderId, company, pos, minAmount, maxAmount } = req.query;
 
     // Build query
     const query = {};
 
-    // Filter by company (via POS)
-    if (company) {
+    // Filter by specific POS
+    if (pos) {
+      query.pos = pos;
+    }
+    // Filter by company (via POS) - only if pos not specified
+    else if (company) {
       const posList = await VirtualPos.find({ company }).select('_id');
       const posIds = posList.map(p => p._id);
       if (posIds.length > 0) {
@@ -43,6 +47,13 @@ router.get('/', async (req, res) => {
     // Currency filter
     if (currency) {
       query.currency = currency.toLowerCase();
+    }
+
+    // Amount range filter
+    if (minAmount || maxAmount) {
+      query.amount = {};
+      if (minAmount) query.amount.$gte = parseFloat(minAmount);
+      if (maxAmount) query.amount.$lte = parseFloat(maxAmount);
     }
 
     // Date range filter (support both from/to and startDate/endDate)
@@ -88,6 +99,22 @@ router.get('/', async (req, res) => {
         pages: Math.ceil(total / parseInt(limit))
       }
     });
+  } catch (error) {
+    res.status(500).json({ status: false, error: error.message });
+  }
+});
+
+/**
+ * GET /pos-list
+ * Get list of POS for filter dropdown
+ */
+router.get('/pos-list', async (req, res) => {
+  try {
+    const posList = await VirtualPos.find({ isActive: true })
+      .select('_id name provider')
+      .sort({ name: 1 });
+
+    res.json({ status: true, posList });
   } catch (error) {
     res.status(500).json({ status: false, error: error.message });
   }
