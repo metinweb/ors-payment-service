@@ -26,6 +26,7 @@ import companyRoutes from './routes/company.routes.js';
 import posRoutes from './routes/pos.routes.js';
 import paymentRoutes, { publicPaymentRoutes } from './routes/payment.routes.js';
 import transactionRoutes from './routes/transaction.routes.js';
+import binRoutes from './routes/bin.routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 7043;
@@ -126,6 +127,9 @@ app.use('/api/companies', companyRoutes);
 
 // POS management
 app.use('/api/pos', posRoutes);
+
+// BIN management
+app.use('/api/bins', binRoutes);
 
 // Transaction history (MUST be before paymentRoutes due to /:id catch-all)
 app.use('/api/transactions', transactionRoutes);
