@@ -1,47 +1,110 @@
 /**
  * BIN Service
  * Kart BIN numarasından banka/kart bilgisi alma
+ * Önce MongoDB'ye bakar, yoksa external API'lerden çeker
  */
 
-import axios from 'axios';
+import { Bin } from '../models/index.js';
+import { fetchBinData } from './BinLookupService.js';
 
-const BIN_API_URL = process.env.BIN_API_URL || 'https://api.orsmod.com/bin';
-
-// Local BIN cache (in-memory)
+// Local BIN cache (in-memory) - short TTL for performance
 const binCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Get BIN info from API or cache
+ * Get BIN info from MongoDB or external sources
  */
 export async function getBinInfo(bin) {
-  // Validate BIN (8 digits)
-  const binNumber = parseInt(String(bin).replace(/\s/g, '').slice(0, 8), 10);
+  // Validate BIN (6-8 digits)
+  const binStr = String(bin).replace(/\s/g, '');
+  const bin8 = binStr.slice(0, 8);
+  const bin6 = binStr.slice(0, 6);
 
-  if (isNaN(binNumber) || String(binNumber).length < 6) {
+  if (bin6.length < 6) {
     return null;
   }
 
-  // Check cache
-  if (binCache.has(binNumber)) {
-    return binCache.get(binNumber);
+  // Check in-memory cache first
+  const cacheKey = bin8;
+  const cached = binCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
   }
 
-  try {
-    const response = await axios.get(`${BIN_API_URL}/${binNumber}`, {
-      timeout: 5000
-    });
+  // 1. Check MongoDB - try 8 digit first, then 6 digit
+  let binRecord = await Bin.findOne({ bin: bin8 });
+  if (!binRecord && bin8.length > 6) {
+    binRecord = await Bin.findOne({ bin: bin6 });
+  }
 
-    if (response.data) {
-      const binInfo = normalizeBinInfo(response.data);
-      binCache.set(binNumber, binInfo);
+  if (binRecord && binRecord.isActive) {
+    const binInfo = normalizeBinRecord(binRecord);
+    binCache.set(cacheKey, { data: binInfo, timestamp: Date.now() });
+    return binInfo;
+  }
+
+  // 2. Not in DB or inactive - fetch from external sources
+  console.log(`[BinService] BIN not in DB, fetching from external: ${bin6}`);
+
+  try {
+    const fetchedData = await fetchBinData(bin8);
+
+    if (fetchedData) {
+      // Save to MongoDB for future use
+      const newBin = new Bin({
+        bin: fetchedData.bin,
+        brand: fetchedData.brand || detectBrandFromDigit(bin6),
+        type: fetchedData.type || 'credit',
+        family: fetchedData.family || '',
+        bank: fetchedData.bank || 'Unknown',
+        bankCode: fetchedData.bankCode || '',
+        country: fetchedData.country || '',
+        isActive: true,
+        notes: `Auto-fetched from ${fetchedData.source}`
+      });
+
+      try {
+        await newBin.save();
+        console.log(`[BinService] Saved new BIN to DB: ${fetchedData.bin}`);
+      } catch (saveError) {
+        // Might be duplicate, try to find again
+        if (saveError.code === 11000) {
+          binRecord = await Bin.findOne({ bin: fetchedData.bin });
+        }
+      }
+
+      const binInfo = {
+        bank: fetchedData.bank || 'Unknown',
+        brand: fetchedData.brand || detectBrandFromDigit(bin6),
+        type: fetchedData.type || 'credit',
+        family: fetchedData.family || '',
+        country: fetchedData.country || 'tr'
+      };
+
+      binCache.set(cacheKey, { data: binInfo, timestamp: Date.now() });
       return binInfo;
     }
   } catch (error) {
-    console.error('BIN API error:', error.message);
+    console.error('[BinService] External fetch error:', error.message);
   }
 
-  // Fallback: detect card brand from first digit
-  return detectCardBrand(binNumber);
+  // 3. Fallback: detect card brand from first digit
+  const fallback = detectCardBrand(bin6);
+  binCache.set(cacheKey, { data: fallback, timestamp: Date.now() });
+  return fallback;
+}
+
+/**
+ * Normalize MongoDB Bin record to standard format
+ */
+function normalizeBinRecord(record) {
+  return {
+    bank: record.bank || 'Unknown',
+    brand: record.brand || 'unknown',
+    type: record.type || 'credit',
+    family: record.family || '',
+    country: record.country || 'tr'
+  };
 }
 
 /**
@@ -58,19 +121,27 @@ function normalizeBinInfo(data) {
 }
 
 /**
- * Detect card brand from BIN
+ * Detect card brand from BIN string
+ */
+function detectBrandFromDigit(bin) {
+  const firstDigit = String(bin).charAt(0);
+  switch (firstDigit) {
+    case '4': return 'visa';
+    case '5': return 'mastercard';
+    case '3': return 'amex';
+    case '6': return 'discover';
+    case '9': return 'troy';
+    case '2': return 'mir';
+    default: return 'other';
+  }
+}
+
+/**
+ * Detect card brand from BIN data object
  */
 function detectBrand(data) {
   const bin = String(data.id || data.bin || '');
-  const firstDigit = bin.charAt(0);
-
-  if (firstDigit === '4') return 'visa';
-  if (firstDigit === '5') return 'mastercard';
-  if (firstDigit === '3') return 'amex';
-  if (firstDigit === '6') return 'discover';
-  if (firstDigit === '2') return 'mir'; // Russian MIR cards
-
-  return 'unknown';
+  return detectBrandFromDigit(bin);
 }
 
 /**

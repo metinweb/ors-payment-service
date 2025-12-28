@@ -27,14 +27,22 @@ export async function queryBin(companyId, bin, amount, currency) {
   // Generate installment options
   const installments = generateInstallmentOptions(pos, amount, currency, binInfo);
 
+  // Return flattened response for frontend compatibility
   return {
     success: true,
-    bin: binInfo,
+    // BIN info flattened for frontend
+    bank: binInfo.bank || 'Unknown',
+    cardType: binInfo.type || 'credit',
+    cardFamily: binInfo.family || '',
+    brand: binInfo.brand || 'unknown',
+    country: binInfo.country || 'tr',
+    // POS info
     pos: {
       id: pos._id,
       name: pos.name,
       provider: pos.provider
     },
+    // Installment options
     installments
   };
 }
