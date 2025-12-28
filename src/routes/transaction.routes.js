@@ -110,8 +110,8 @@ router.get('/', async (req, res) => {
  */
 router.get('/pos-list', async (req, res) => {
   try {
-    const posList = await VirtualPos.find({ isActive: true })
-      .select('_id name provider')
+    const posList = await VirtualPos.find({})
+      .select('_id name provider isActive')
       .sort({ name: 1 });
 
     res.json({ status: true, posList });
