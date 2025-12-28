@@ -32,6 +32,7 @@ export async function queryBin(companyId, bin, amount, currency) {
     success: true,
     // BIN info flattened for frontend
     bank: binInfo.bank || 'Unknown',
+    bankCode: binInfo.bankCode || '',
     cardType: binInfo.type || 'credit',
     cardFamily: binInfo.family || '',
     brand: binInfo.brand || 'unknown',
@@ -40,6 +41,7 @@ export async function queryBin(companyId, bin, amount, currency) {
     pos: {
       id: pos._id,
       name: pos.name,
+      bankCode: pos.bankCode,
       provider: pos.provider
     },
     // Installment options
@@ -49,28 +51,61 @@ export async function queryBin(companyId, bin, amount, currency) {
 
 /**
  * Find suitable POS for the transaction
+ * Priority order:
+ * 1. Same bank as card (onus transaction = best rates)
+ * 2. POS that supports card family (world, bonus, etc.)
+ * 3. Default POS for currency
+ * 4. Any active POS for currency (by priority)
  */
 async function findSuitablePos(companyId, currency, binInfo) {
   const currencyLower = currency.toLowerCase();
+  const cardBankCode = binInfo?.bankCode?.toLowerCase() || '';
+  const cardFamily = binInfo?.family?.toLowerCase() || '';
 
-  // First try to find default POS for currency
-  let pos = await VirtualPos.findOne({
+  // Get all active POS for this currency
+  const allPos = await VirtualPos.find({
     company: companyId,
     currencies: currencyLower,
-    defaultForCurrencies: currencyLower,
     status: true
-  });
+  }).sort({ priority: -1 }); // Higher priority first
 
-  if (!pos) {
-    // Find any active POS for currency
-    pos = await VirtualPos.findOne({
-      company: companyId,
-      currencies: currencyLower,
-      status: true
-    });
+  if (!allPos.length) {
+    return null;
   }
 
-  return pos;
+  // 1. Try to find POS with same bank (onus = best rates)
+  if (cardBankCode) {
+    const onusPos = allPos.find(p => p.bankCode === cardBankCode);
+    if (onusPos) {
+      console.log(`[POS] Selected onus POS: ${onusPos.name} (card bank: ${cardBankCode})`);
+      return onusPos;
+    }
+  }
+
+  // 2. Try to find POS that supports the card family
+  if (cardFamily) {
+    const familyPos = allPos.find(p =>
+      p.supportedCardFamilies &&
+      p.supportedCardFamilies.some(f => f.toLowerCase() === cardFamily)
+    );
+    if (familyPos) {
+      console.log(`[POS] Selected family POS: ${familyPos.name} (card family: ${cardFamily})`);
+      return familyPos;
+    }
+  }
+
+  // 3. Try default POS for currency
+  const defaultPos = allPos.find(p =>
+    p.defaultForCurrencies && p.defaultForCurrencies.includes(currencyLower)
+  );
+  if (defaultPos) {
+    console.log(`[POS] Selected default POS: ${defaultPos.name}`);
+    return defaultPos;
+  }
+
+  // 4. Return highest priority POS
+  console.log(`[POS] Selected by priority: ${allPos[0].name}`);
+  return allPos[0];
 }
 
 /**

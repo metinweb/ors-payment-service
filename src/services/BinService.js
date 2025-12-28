@@ -75,6 +75,7 @@ export async function getBinInfo(bin) {
 
       const binInfo = {
         bank: fetchedData.bank || 'Unknown',
+        bankCode: fetchedData.bankCode || '',
         brand: fetchedData.brand || detectBrandFromDigit(bin6),
         type: fetchedData.type || 'credit',
         family: fetchedData.family || '',
@@ -100,6 +101,7 @@ export async function getBinInfo(bin) {
 function normalizeBinRecord(record) {
   return {
     bank: record.bank || 'Unknown',
+    bankCode: record.bankCode || '',
     brand: record.brand || 'unknown',
     type: record.type || 'credit',
     family: record.family || '',
@@ -163,6 +165,7 @@ function detectCardBrand(bin) {
 
   return {
     bank: 'Unknown',
+    bankCode: '',
     brand: detectBrand({ bin }),
     type: 'credit',
     family: '',

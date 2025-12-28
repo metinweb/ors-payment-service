@@ -274,6 +274,13 @@ const virtualPosSchema = new mongoose.Schema({
     mastercard: { type: Boolean, default: true },
     amex: { type: Boolean, default: false },
     troy: { type: Boolean, default: true }
+  },
+  // Desteklenen kart aileleri (avantajlı oranlar için)
+  // Bu POS hangi kart aileleri için avantajlı oran sunuyor
+  supportedCardFamilies: {
+    type: [String],
+    enum: ['world', 'bonus', 'maximum', 'axess', 'cardfinans', 'paraf', 'miles', 'bankkart', 'advantage', 'combo', 'shop&miles'],
+    default: []
   }
 }, {
   timestamps: true
