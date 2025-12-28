@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { Bin } from '../models/index.js';
+import { fetchBinData } from '../services/BinLookupService.js';
 
 const router = Router();
 
@@ -174,17 +175,71 @@ router.get('/search/:bin', async (req, res) => {
 
 /**
  * GET /lookup/:bin
- * Get exact BIN info
+ * Get exact BIN info - auto-fetch from external sources if not in DB
  */
 router.get('/lookup/:bin', async (req, res) => {
   try {
     const binNumber = req.params.bin.replace(/\s/g, '').slice(0, 8);
+    const bin6 = binNumber.slice(0, 6);
 
     // Try exact match first (8 digits, then 6 digits)
     let bin = await Bin.findOne({ bin: binNumber });
 
     if (!bin && binNumber.length > 6) {
-      bin = await Bin.findOne({ bin: binNumber.slice(0, 6) });
+      bin = await Bin.findOne({ bin: bin6 });
+    }
+
+    // If not found in DB, try to fetch from external sources
+    if (!bin) {
+      console.log(`[BIN] Not found in DB, fetching from external sources: ${binNumber}`);
+
+      const fetchedData = await fetchBinData(binNumber);
+
+      if (fetchedData) {
+        // Save to database
+        const newBin = new Bin({
+          bin: fetchedData.bin,
+          brand: fetchedData.brand || 'other',
+          type: fetchedData.type || 'credit',
+          family: fetchedData.family || '',
+          bank: fetchedData.bank || 'Unknown',
+          bankCode: fetchedData.bankCode || '',
+          country: fetchedData.country || '',
+          notes: `Auto-fetched from ${fetchedData.source}`
+        });
+
+        try {
+          await newBin.save();
+          console.log(`[BIN] Saved new BIN to DB: ${fetchedData.bin}`);
+          bin = newBin;
+        } catch (saveError) {
+          // Might be duplicate, try to find again
+          bin = await Bin.findOne({ bin: fetchedData.bin });
+          if (!bin) {
+            bin = newBin.toObject(); // Return without saving
+          }
+        }
+      } else {
+        // Create empty record to avoid repeated lookups
+        const emptyBin = new Bin({
+          bin: bin6,
+          brand: detectBrandFromBin(binNumber),
+          type: 'credit',
+          family: '',
+          bank: 'Unknown',
+          bankCode: '',
+          country: '',
+          isActive: false,
+          notes: 'Auto-created, not found in external sources'
+        });
+
+        try {
+          await emptyBin.save();
+          bin = emptyBin;
+        } catch (e) {
+          bin = await Bin.findOne({ bin: bin6 });
+        }
+      }
     }
 
     if (!bin) {
@@ -193,9 +248,26 @@ router.get('/lookup/:bin', async (req, res) => {
 
     res.json({ status: true, bin });
   } catch (error) {
+    console.error('[BIN] Lookup error:', error);
     res.status(500).json({ status: false, error: error.message });
   }
 });
+
+/**
+ * Detect card brand from BIN first digit
+ */
+function detectBrandFromBin(bin) {
+  const firstDigit = String(bin).charAt(0);
+  switch (firstDigit) {
+    case '4': return 'visa';
+    case '5': return 'mastercard';
+    case '3': return 'amex';
+    case '6': return 'discover';
+    case '9': return 'troy';
+    case '2': return 'mir';
+    default: return 'other';
+  }
+}
 
 /**
  * GET /banks
