@@ -43,19 +43,21 @@ export async function queryBin(companyId, bin, amount, currency) {
  * Find suitable POS for the transaction
  */
 async function findSuitablePos(companyId, currency, binInfo) {
+  const currencyLower = currency.toLowerCase();
+
   // First try to find default POS for currency
   let pos = await VirtualPos.findOne({
     company: companyId,
-    currency,
-    status: true,
-    isDefault: true
+    currencies: currencyLower,
+    defaultForCurrencies: currencyLower,
+    status: true
   });
 
   if (!pos) {
     // Find any active POS for currency
     pos = await VirtualPos.findOne({
       company: companyId,
-      currency,
+      currencies: currencyLower,
       status: true
     });
   }
@@ -130,9 +132,16 @@ export async function createPayment(data) {
       holder: card.holder,
       number: card.number,
       expiry: card.expiry,
-      cvv: card.cvv
+      cvv: card.cvv,
+      bin: bin // numeric BIN (first 8 digits)
     },
-    bin: binInfo || {},
+    bin: binInfo ? {
+      bank: binInfo.bank || '',
+      brand: binInfo.brand || '',
+      type: binInfo.type || '',
+      family: binInfo.family || '',
+      country: binInfo.country || ''
+    } : {},
     customer: customer || {},
     status: 'pending',
     externalId
@@ -156,13 +165,18 @@ export async function createPayment(data) {
       throw new Error(transaction.result.message);
     }
 
-    transaction.status = 'processing';
-    await transaction.save();
+    // Reload transaction from DB to get formData saved by provider
+    // Then update status (Mongoose Mixed type doesn't auto-detect nested changes)
+    await Transaction.updateOne(
+      { _id: transaction._id },
+      { $set: { status: 'processing' } }
+    );
 
     return {
       success: true,
       transactionId: transaction._id,
-      redirectUrl: `${process.env.CALLBACK_BASE_URL}/payment/${transaction._id}/form`
+      // formUrl for 3D Secure iframe/redirect
+      formUrl: `${process.env.CALLBACK_BASE_URL}/payment/${transaction._id}/form`
     };
   } catch (error) {
     transaction.status = 'failed';

@@ -179,7 +179,7 @@ export default class YKBProvider extends BaseProvider {
           currencyCode: currencyCode
         };
 
-        await this.transaction.save();
+        await this.saveSecure();  // Use helper for Mixed type
 
         return { success: true };
       } else {
@@ -257,7 +257,7 @@ export default class YKBProvider extends BaseProvider {
         code: 'NO_MERCHANT_PACKET',
         message: 'Banka yaniti alinamadi'
       };
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
       return { success: false, message: this.transaction.result.message };
     }
 
@@ -272,7 +272,7 @@ export default class YKBProvider extends BaseProvider {
         code: 'DECRYPT_ERROR',
         message: '3D dogrulama sifresi cozulemedi'
       };
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
       return { success: false, message: this.transaction.result.message };
     }
 
@@ -293,7 +293,7 @@ export default class YKBProvider extends BaseProvider {
         code: mdStatus,
         message: decrypted.tds_md_errormessage || decrypted.mdErrorMessage || '3D dogrulama basarisiz'
       };
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
       return { success: false, message: this.transaction.result.message };
     }
 
@@ -359,7 +359,7 @@ export default class YKBProvider extends BaseProvider {
           code: result.respCode,
           message: result.respText || 'Odeme reddedildi'
         };
-        await this.transaction.save();
+        await this.saveSecure();  // Use helper for Mixed type
 
         return { success: false, message: this.transaction.result.message };
       }
@@ -371,7 +371,7 @@ export default class YKBProvider extends BaseProvider {
         message: error.message
       };
       await this.log('error', {}, { error: error.message });
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
 
       return { success: false, message: 'Baglanti hatasi' };
     }
@@ -432,7 +432,7 @@ export default class YKBProvider extends BaseProvider {
           code: result.respCode,
           message: result.respText || 'Odeme reddedildi'
         };
-        await this.transaction.save();
+        await this.saveSecure();  // Use helper for Mixed type
 
         return { success: false, message: this.transaction.result.message };
       }
@@ -444,7 +444,7 @@ export default class YKBProvider extends BaseProvider {
         message: error.message
       };
       await this.log('error', {}, { error: error.message });
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
 
       return { success: false, message: 'Baglanti hatasi' };
     }

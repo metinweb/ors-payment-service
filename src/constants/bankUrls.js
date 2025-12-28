@@ -184,6 +184,62 @@ export const BANK_URLS = {
       api: 'https://boa.kuveytturk.com.tr/sanalposservice/Home/ThreeDModelPayGate',
       gate: 'https://boa.kuveytturk.com.tr/sanalposservice/Home/ThreeDModelProvisionGate'
     }
+  },
+
+  // ============================================
+  // AKBANK (NEW JSON API)
+  // ============================================
+  akbank: {
+    test: {
+      api: 'https://apipre.akbank.com/api/v1/payment/virtualpos/transaction/process',
+      gate: 'https://virtualpospaymentgatewaypre.akbank.com/securepay'
+    },
+    production: {
+      api: 'https://api.akbank.com/api/v1/payment/virtualpos/transaction/process',
+      gate: 'https://virtualpospaymentgateway.akbank.com/securepay'
+    }
+  },
+
+  // ============================================
+  // PAYTR
+  // ============================================
+  paytr: {
+    test: {
+      api: 'https://www.paytr.com/odeme/api/get-token',
+      gate: 'https://www.paytr.com/odeme/guvenli'
+    },
+    production: {
+      api: 'https://www.paytr.com/odeme/api/get-token',
+      gate: 'https://www.paytr.com/odeme/guvenli'
+    }
+  },
+
+  // ============================================
+  // IYZICO
+  // ============================================
+  iyzico: {
+    test: {
+      api: 'https://sandbox-api.iyzipay.com',
+      gate: 'https://sandbox-api.iyzipay.com'
+    },
+    production: {
+      api: 'https://api.iyzipay.com',
+      gate: 'https://api.iyzipay.com'
+    }
+  },
+
+  // ============================================
+  // SIGMAPAY
+  // ============================================
+  sigmapay: {
+    test: {
+      api: 'https://pay.sigmapay.com/pay',
+      gate: 'https://pay.sigmapay.com/pay'
+    },
+    production: {
+      api: 'https://pay.sigmapay.com/pay',
+      gate: 'https://pay.sigmapay.com/pay'
+    }
   }
 };
 

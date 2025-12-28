@@ -6,7 +6,14 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { connectDB } from './config/database.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Middleware
 import { apiKeyAuth } from '@ors/common';
@@ -78,6 +85,28 @@ app.get('/health', async (req, res) => {
 // PUBLIC ROUTES (no auth - called by browser/bank for 3D callbacks)
 // ============================================================================
 
+// Explicit CORS + iframe headers for payment routes (bank callbacks)
+app.use('/payment', (req, res, next) => {
+  // Get origin from request or allow all
+  const origin = req.headers.origin || '*';
+
+  // CORS headers - use specific origin when credentials are needed
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Origin, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  // Allow iframe embedding from anywhere
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
 app.use('/payment', publicPaymentRoutes);
 
 // ============================================================================
@@ -96,11 +125,13 @@ app.use('/api/companies', companyRoutes);
 // POS management
 app.use('/api/pos', posRoutes);
 
-// Payment processing
-app.use('/api/payment', paymentRoutes);
-
-// Transaction history
+// Transaction history (MUST be before paymentRoutes due to /:id catch-all)
 app.use('/api/transactions', transactionRoutes);
+
+// Payment processing - mounted at /api since gateway strips /payment prefix
+// Gateway: /api/payment/pay → Service: /api/pay
+// NOTE: This has /:id route that catches everything, so it must be LAST
+app.use('/api', paymentRoutes);
 
 // ============================================================================
 // ERROR HANDLING
@@ -137,14 +168,25 @@ async function start() {
     await connectDB();
     console.log('MongoDB connected');
 
-    app.listen(PORT, () => {
-      console.log(`
+    // Check for SSL certificates
+    const certPath = path.join(__dirname, '../certs/cert.pem');
+    const keyPath = path.join(__dirname, '../certs/key.pem');
+    const useHttps = fs.existsSync(certPath) && fs.existsSync(keyPath);
+
+    if (useHttps) {
+      const httpsOptions = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath)
+      };
+
+      https.createServer(httpsOptions, app).listen(PORT, () => {
+        console.log(`
 ╔═══════════════════════════════════════════════════╗
 ║                                                   ║
-║   ORS Payment Service                             ║
-║   ───────────────────                             ║
+║   ORS Payment Service (HTTPS)                     ║
+║   ───────────────────────────                     ║
 ║                                                   ║
-║   Server running on port ${PORT}                   ║
+║   Server running on https://localhost:${PORT}      ║
 ║                                                   ║
 ║   Endpoints:                                      ║
 ║   • GET  /api/companies     - Company management  ║
@@ -154,8 +196,29 @@ async function start() {
 ║   • GET  /health            - Health check        ║
 ║                                                   ║
 ╚═══════════════════════════════════════════════════╝
-      `);
-    });
+        `);
+      });
+    } else {
+      app.listen(PORT, () => {
+        console.log(`
+╔═══════════════════════════════════════════════════╗
+║                                                   ║
+║   ORS Payment Service (HTTP)                      ║
+║   ──────────────────────────                      ║
+║                                                   ║
+║   Server running on http://localhost:${PORT}       ║
+║                                                   ║
+║   Endpoints:                                      ║
+║   • GET  /api/companies     - Company management  ║
+║   • GET  /api/pos           - POS management      ║
+║   • POST /api/payment/pay   - Process payment     ║
+║   • GET  /api/transactions  - Transaction history ║
+║   • GET  /health            - Health check        ║
+║                                                   ║
+╚═══════════════════════════════════════════════════╝
+        `);
+      });
+    }
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

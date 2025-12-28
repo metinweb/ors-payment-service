@@ -73,8 +73,8 @@ export default class PaytenProvider extends BaseProvider {
     this.transaction.secure = this.transaction.secure || {};
     this.transaction.secure.formData = formData;
 
+    await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
     await this.log('init', { orderId }, { status: 'prepared' });
-    await this.transaction.save();
 
     return { success: true };
   }

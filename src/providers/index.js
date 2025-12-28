@@ -5,19 +5,32 @@
 import GarantiProvider from './GarantiProvider.js';
 import PaytenProvider from './PaytenProvider.js';
 import YKBProvider from './YKBProvider.js';
+import AkbankProvider from './AkbankProvider.js';
+import VakifbankProvider from './VakifbankProvider.js';
+import QNBProvider from './QNBProvider.js';
+import DenizbankProvider from './DenizbankProvider.js';
+import PayTRProvider from './PayTRProvider.js';
+import IyzicoProvider from './IyzicoProvider.js';
+import SigmapayProvider from './SigmapayProvider.js';
 
 const PROVIDERS = {
   garanti: GarantiProvider,
   payten: PaytenProvider,
   ykb: YKBProvider,
-  // TODO: Implement other providers
-  akbank: null,
-  vakifbank: null,
-  qnb: null,
-  denizbank: null,
-  paytr: null,
-  iyzico: null,
-  sigmapay: null
+  akbank: AkbankProvider,
+  vakifbank: VakifbankProvider,
+  qnb: QNBProvider,
+  denizbank: DenizbankProvider,
+  paytr: PayTRProvider,
+  iyzico: IyzicoProvider,
+  sigmapay: SigmapayProvider,
+  // NestPay based banks (use PaytenProvider)
+  isbank: PaytenProvider,
+  halkbank: PaytenProvider,
+  ziraat: PaytenProvider,
+  teb: PaytenProvider,
+  ingbank: PaytenProvider,
+  sekerbank: PaytenProvider
 };
 
 export function getProvider(transaction, virtualPos) {

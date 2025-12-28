@@ -184,11 +184,27 @@ publicPaymentRoutes.get('/:id/form', async (req, res) => {
 });
 
 /**
+ * OPTIONS /payment/:id/callback
+ * CORS preflight for callback
+ */
+publicPaymentRoutes.options('/:id/callback', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(200).end();
+});
+
+/**
  * POST /payment/:id/callback
  * 3D callback from bank
  * No auth - called by bank
  */
 publicPaymentRoutes.post('/:id/callback', async (req, res) => {
+  // Allow all origins for callback (bank redirects here)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
   try {
     const result = await PaymentService.processCallback(req.params.id, req.body);
 
@@ -196,6 +212,9 @@ publicPaymentRoutes.post('/:id/callback', async (req, res) => {
     const statusClass = result.success ? 'success' : 'error';
     const statusText = result.success ? 'Payment Successful' : 'Payment Failed';
     const message = result.message || '';
+
+    // Get frontend URL from env or default
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     res.send(`
 <!DOCTYPE html>
@@ -211,7 +230,6 @@ publicPaymentRoutes.post('/:id/callback', async (req, res) => {
     .icon { font-size: 60px; margin-bottom: 20px; }
     h1 { margin: 0 0 10px; }
     p { color: #666; margin: 0; }
-    .data { margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px; text-align: left; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -219,15 +237,47 @@ publicPaymentRoutes.post('/:id/callback', async (req, res) => {
     <div class="icon ${statusClass}">${result.success ? '✓' : '✗'}</div>
     <h1 class="${statusClass}">${statusText}</h1>
     <p>${message}</p>
-    <div class="data">
-      <script>
-        var result = ${JSON.stringify(result)};
-        if (window.parent !== window) {
-          window.parent.postMessage({ type: 'payment_result', data: result }, '*');
-        }
-      </script>
-    </div>
+    <p id="status">Yönlendiriliyor...</p>
   </div>
+  <script>
+    var result = ${JSON.stringify(result)};
+    var sent = false;
+
+    function sendToParent() {
+      if (sent) return;
+      try {
+        // Try multiple methods to reach parent
+        if (window.top !== window) {
+          window.top.postMessage({ type: 'payment_result', data: result }, '*');
+          sent = true;
+        } else if (window.parent !== window) {
+          window.parent.postMessage({ type: 'payment_result', data: result }, '*');
+          sent = true;
+        } else if (window.opener) {
+          window.opener.postMessage({ type: 'payment_result', data: result }, '*');
+          sent = true;
+        }
+      } catch(e) {
+        console.error('postMessage error:', e);
+      }
+    }
+
+    // Try immediately
+    sendToParent();
+
+    // Retry a few times
+    setTimeout(sendToParent, 100);
+    setTimeout(sendToParent, 500);
+    setTimeout(sendToParent, 1000);
+
+    // Fallback: redirect to frontend with result after 3 seconds
+    setTimeout(function() {
+      if (!sent) {
+        var redirectUrl = '${frontendUrl}/payment/result?success=' + result.success + '&message=' + encodeURIComponent(result.message || '');
+        window.location.href = redirectUrl;
+      }
+    }, 3000);
+  </script>
 </body>
 </html>
     `);

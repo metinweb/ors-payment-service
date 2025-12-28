@@ -1,5 +1,5 @@
 /**
- * Garanti Bankası POS Provider
+ * Garanti Bankası POS Provider (Version 512 - SHA512)
  */
 
 import crypto from 'crypto';
@@ -9,81 +9,151 @@ export default class GarantiProvider extends BaseProvider {
   constructor(transaction, virtualPos) {
     super(transaction, virtualPos);
     this.provUserId = 'PROVAUT';
+    this.apiVersion = '512';
   }
 
   /**
-   * Generate security hash for Garanti
+   * Generate hashed password (SHA1)
+   * Format: SHA1(password + '0' + terminalId).toUpperCase()
    */
-  generateHash(data) {
+  getHashedPassword() {
     const { terminalId, password } = this.credentials;
-    const tid = terminalId.padStart(9, '0');
-
-    // Step 1: Hash password + tid
-    const hashedPassword = crypto
-      .createHash('sha1')
-      .update(password + tid)
-      .digest('hex')
-      .toUpperCase();
-
-    // Step 2: Hash security data
-    const securityData = data + hashedPassword;
     return crypto
       .createHash('sha1')
+      .update(password + '0' + terminalId)
+      .digest('hex')
+      .toUpperCase();
+  }
+
+  /**
+   * Generate security hash for 3D form (SHA512)
+   * Format: SHA512(terminalId + orderId + amount + currency + successUrl + errorUrl + 'sales' + installment + storeKey + hashedPassword)
+   */
+  generate3DHash(orderId, amount, currency, successUrl, errorUrl, installment) {
+    const { terminalId, secretKey } = this.credentials;
+    const hashedPassword = this.getHashedPassword();
+
+    const securityData = terminalId + orderId + amount + currency + successUrl + errorUrl + 'sales' + installment + secretKey + hashedPassword;
+
+    return crypto
+      .createHash('sha512')
       .update(securityData)
       .digest('hex')
       .toUpperCase();
   }
 
+  /**
+   * Generate security hash for provision (SHA512)
+   * Format: SHA512(orderId + terminalId + cardNumber + amount + currency + hashedPassword)
+   */
+  generateProvisionHash(orderId, cardNumber, amount, currency) {
+    const { terminalId } = this.credentials;
+    const hashedPassword = this.getHashedPassword();
+
+    const securityData = orderId + terminalId + cardNumber + amount + currency + hashedPassword;
+
+    return crypto
+      .createHash('sha512')
+      .update(securityData)
+      .digest('hex')
+      .toUpperCase();
+  }
+
+  /**
+   * Get mode (test or PROD)
+   */
+  getMode() {
+    return this.pos.testMode ? 'test' : 'PROD';
+  }
+
+  /**
+   * Generate order ID
+   */
+  getOrderId() {
+    const bookingCode = this.transaction.bookingCode || '';
+    const orderId = 'ORS_' + bookingCode + '_' + Date.now().toString(36);
+    return orderId.substring(0, 20).padEnd(20, '0');
+  }
+
   async initialize() {
-    // Garanti doesn't need pre-initialization
-    // Just store form data and return success
     const card = this.getCard();
     const { merchantId, terminalId, secretKey } = this.credentials;
 
-    const orderId = this.transaction._id.toString();
-    const amount = this.formatAmount(false); // No decimals
+    const orderId = this.getOrderId();
+    const amount = this.formatAmount(false); // No decimals (cents)
+    const currency = this.getCurrencyCode();
     const callbackUrl = this.getCallbackUrl();
+    const installment = this.transaction.installment > 1 ? this.transaction.installment.toString() : '';
 
-    // Generate security hash
-    const hashData = orderId + terminalId + '' + amount + callbackUrl + callbackUrl + 'sales' + secretKey;
-    const hashedPassword = crypto.createHash('sha1')
-      .update(this.credentials.password + terminalId.padStart(9, '0'))
-      .digest('hex')
-      .toUpperCase();
-    const securityHash = crypto.createHash('sha1')
-      .update(hashData + hashedPassword)
-      .digest('hex')
-      .toUpperCase();
+    // Generate security hash (SHA512)
+    const securityHash = this.generate3DHash(orderId, amount, currency, callbackUrl, callbackUrl, installment);
 
     // Store form data
     this.transaction.secure = this.transaction.secure || {};
     this.transaction.secure.formData = {
-      cardnumber: card.number,
+      cardnumber: card.number.replace(/\s/g, ''),
       cardcvv2: card.cvv,
-      cardexpiredateyear: card.expiry.split('/')[1],
-      cardexpiredatemonth: card.expiry.split('/')[0],
+      cardexpiredateyear: this.formatExpiryYear(card.expiry),
+      cardexpiredatemonth: this.formatExpiryMonth(card.expiry),
       txntype: 'sales',
       secure3dsecuritylevel: '3D',
-      mode: 'PROD',
+      mode: this.getMode(),
       orderid: orderId,
-      apiversion: 'v1.0',
+      apiversion: this.apiVersion,
       terminalprovuserid: this.provUserId,
       terminaluserid: this.provUserId,
       terminalid: terminalId,
       terminalmerchantid: merchantId,
       customeripaddress: this.transaction.customer?.ip || '',
+      customeremailaddress: this.transaction.customer?.email || '',
+      txntype: 'sales',
       txnamount: amount,
-      txncurrencycode: this.getCurrencyCode(),
-      txninstallmentcount: this.transaction.installment > 1 ? this.transaction.installment.toString() : '',
+      txncurrencycode: currency,
+      companyname: this.pos.companyName || '',
+      txninstallmentcount: installment,
       successurl: callbackUrl,
       errorurl: callbackUrl,
-      secure3dhash: securityHash
+      secure3dhash: securityHash,
+      txntimestamp: this.getTimestamp(),
+      lang: this.transaction.language || 'tr',
+      refreshtime: '0',
+      storetype: '3d',
+      type: '3d'
     };
 
-    await this.log('init', { orderId }, { status: 'prepared' });
-    await this.transaction.save();
+    await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
+    await this.log('init', { orderId, amount, currency }, { status: 'prepared' });
 
     return { success: true };
+  }
+
+  /**
+   * Format expiry month (MM)
+   */
+  formatExpiryMonth(expiry) {
+    return expiry.split('/')[0].padStart(2, '0');
+  }
+
+  /**
+   * Format expiry year (YY)
+   */
+  formatExpiryYear(expiry) {
+    const year = expiry.split('/')[1];
+    return year.length === 4 ? year.slice(-2) : year;
+  }
+
+  /**
+   * Get timestamp (ddMMYYYYHHmmss)
+   */
+  getTimestamp() {
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const MM = String(now.getMonth() + 1).padStart(2, '0');
+    const YYYY = now.getFullYear();
+    const HH = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    return dd + MM + YYYY + HH + mm + ss;
   }
 
   async getFormHtml() {
@@ -100,18 +170,18 @@ export default class GarantiProvider extends BaseProvider {
   async processCallback(postData) {
     await this.log('3d_callback', postData, {});
 
-    // Check 3D status
+    // Check 3D status (only '1' is valid for Garanti)
     const mdStatus = postData.mdstatus;
-    const validStatuses = ['1', '2', '3', '4'];
+    const validStatuses = ['1'];
 
     if (!validStatuses.includes(mdStatus)) {
       this.transaction.status = 'failed';
       this.transaction.result = {
         success: false,
         code: mdStatus,
-        message: postData.mderrormessage || '3D doğrulama başarısız'
+        message: postData.mderrormessage || '3D dogrulama basarisiz'
       };
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
       return { success: false, message: this.transaction.result.message };
     }
 
@@ -119,70 +189,47 @@ export default class GarantiProvider extends BaseProvider {
     const { md, xid, eci, cavv } = postData;
     this.transaction.secure = {
       ...this.transaction.secure,
-      enabled: true,
-      eci,
-      cavv,
-      md
+      confirm3D: { md, xid, eci, cavv }
     };
+    await this.saveSecure();  // Use helper for Mixed type
 
-    // Process provision
+    // Process provision (3D payment)
     return this.processProvision({ md, xid, eci, cavv });
   }
 
+  /**
+   * Process 3D provision - after 3D verification
+   */
   async processProvision(secureData) {
-    const card = this.getCard();
     const { merchantId, terminalId } = this.credentials;
-    const orderId = this.transaction._id.toString();
-    const amount = this.formatAmount(false);
+    const formData = this.transaction.secure?.formData;
+    const orderId = formData?.orderid;
+    const amount = formData?.txnamount;
+    const currency = formData?.txncurrencycode;
+    const installment = formData?.txninstallmentcount || '';
 
-    // Generate hash for provision
-    const hashData = orderId + terminalId + (this.transaction.secure?.formData?.cardnumber ? '' : card.number) + amount;
-    const securityHash = this.generateHash(hashData);
+    // For 3D payment, cardNumber is empty in hash
+    const securityHash = this.generateProvisionHash(orderId, '', amount, currency);
 
-    const provisionRequest = {
-      GVPSRequest: {
-        Mode: 'PROD',
-        Version: 'v0.00',
-        Terminal: {
-          ProvUserID: this.provUserId,
-          HashData: securityHash,
-          UserID: this.provUserId,
-          ID: terminalId,
-          MerchantID: merchantId
-        },
-        Customer: {
-          IPAddress: this.transaction.customer?.ip || '',
-          EmailAddress: this.transaction.customer?.email || ''
-        },
-        Order: {
-          OrderID: orderId,
-          GroupID: '',
-          Description: ''
-        },
-        Transaction: {
-          Type: 'sales',
-          InstallmentCnt: this.transaction.installment > 1 ? this.transaction.installment.toString() : '',
-          Amount: amount,
-          CurrencyCode: this.getCurrencyCode(),
-          CardholderPresentCode: 13,
-          MotoInd: 'N',
-          Description: '',
-          Secure3D: {
-            AuthenticationCode: secureData.cavv,
-            SecurityLevel: secureData.eci,
-            TxnID: secureData.xid,
-            Md: secureData.md
-          }
-        }
-      }
-    };
+    const provisionXml = this.build3DProvisionXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId,
+      amount,
+      currency,
+      installment,
+      secureData
+    });
 
     try {
-      const xml = this.buildXml(provisionRequest);
-      const response = await this.post(this.urls.api, 'data=' + xml);
+      await this.log('provision', { orderId, amount }, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'data=' + provisionXml);
       const result = await this.parseXml(response.data);
 
-      await this.log('provision', provisionRequest, result);
+      await this.log('provision', { orderId }, result);
 
       if (result.Transaction?.Response?.Message === 'Approved') {
         this.transaction.status = 'success';
@@ -194,15 +241,15 @@ export default class GarantiProvider extends BaseProvider {
         this.transaction.completedAt = new Date();
         await this.transaction.clearCvv();
 
-        return { success: true, message: 'Ödeme başarılı' };
+        return { success: true, message: 'Odeme basarili' };
       } else {
         this.transaction.status = 'failed';
         this.transaction.result = {
           success: false,
           code: result.Transaction?.Response?.ReasonCode,
-          message: result.Transaction?.Response?.ErrorMsg || 'Ödeme reddedildi'
+          message: result.Transaction?.Response?.ErrorMsg || 'Odeme reddedildi'
         };
-        await this.transaction.save();
+        await this.saveSecure();  // Use helper for Mixed type
 
         return { success: false, message: this.transaction.result.message };
       }
@@ -214,9 +261,172 @@ export default class GarantiProvider extends BaseProvider {
         message: error.message
       };
       await this.log('error', {}, { error: error.message });
-      await this.transaction.save();
+      await this.saveSecure();  // Use helper for Mixed type
 
-      return { success: false, message: 'Bağlantı hatası' };
+      return { success: false, message: 'Baglanti hatasi' };
     }
+  }
+
+  /**
+   * Build 3D provision XML (after 3D callback)
+   */
+  build3DProvisionXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId, amount, currency, installment, secureData } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>${this.provUserId}</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>${this.provUserId}</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress>${this.transaction.customer?.ip || ''}</IPAddress>
+  <EmailAddress>${this.transaction.customer?.email || ''}</EmailAddress>
+</Customer>
+<Order>
+  <OrderID>${orderId}</OrderID>
+  <GroupID></GroupID>
+  <Description></Description>
+</Order>
+<Transaction>
+  <Type>sales</Type>
+  <InstallmentCnt>${installment}</InstallmentCnt>
+  <Amount>${amount}</Amount>
+  <CurrencyCode>${currency}</CurrencyCode>
+  <CardholderPresentCode>13</CardholderPresentCode>
+  <MotoInd>N</MotoInd>
+  <Description></Description>
+  <Secure3D>
+    <AuthenticationCode>${secureData.cavv || ''}</AuthenticationCode>
+    <SecurityLevel>${secureData.eci || ''}</SecurityLevel>
+    <TxnID>${secureData.xid || ''}</TxnID>
+    <Md>${secureData.md || ''}</Md>
+  </Secure3D>
+</Transaction>
+</GVPSRequest>`;
+  }
+
+  /**
+   * Non-3D Payment (Direct payment without 3D Secure)
+   */
+  async directPayment() {
+    const card = this.getCard();
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = this.getOrderId();
+    const amount = this.formatAmount(false);
+    const currency = this.getCurrencyCode();
+    const installment = this.transaction.installment > 1 ? this.transaction.installment.toString() : '';
+    const cardNumber = card.number.replace(/\s/g, '');
+
+    // For non-3D, include card number in hash
+    const securityHash = this.generateProvisionHash(orderId, cardNumber, amount, currency);
+
+    const paymentXml = this.buildDirectPaymentXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId,
+      amount,
+      currency,
+      installment,
+      card: {
+        number: cardNumber,
+        expiry: this.formatExpiryMonth(card.expiry) + this.formatExpiryYear(card.expiry),
+        cvv: card.cvv
+      }
+    });
+
+    try {
+      await this.log('provision', { orderId, amount }, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'data=' + paymentXml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('provision', { orderId }, result);
+
+      if (result.Transaction?.Response?.Message === 'Approved') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.clearCvv();
+
+        return { success: true, message: 'Odeme basarili' };
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.Transaction?.Response?.ReasonCode,
+          message: result.Transaction?.Response?.ErrorMsg || 'Odeme reddedildi'
+        };
+        await this.saveSecure();  // Use helper for Mixed type
+
+        return { success: false, message: this.transaction.result.message };
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.saveSecure();  // Use helper for Mixed type
+
+      return { success: false, message: 'Baglanti hatasi' };
+    }
+  }
+
+  /**
+   * Build direct payment XML (non-3D)
+   */
+  buildDirectPaymentXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId, amount, currency, installment, card } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>${this.provUserId}</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>${this.provUserId}</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress>${this.transaction.customer?.ip || ''}</IPAddress>
+  <EmailAddress>${this.transaction.customer?.email || ''}</EmailAddress>
+</Customer>
+<Card>
+  <Number>${card.number}</Number>
+  <ExpireDate>${card.expiry}</ExpireDate>
+  <CVV2>${card.cvv}</CVV2>
+</Card>
+<Order>
+  <OrderID>${orderId}</OrderID>
+  <GroupID></GroupID>
+  <Description></Description>
+</Order>
+<Transaction>
+  <Type>sales</Type>
+  <InstallmentCnt>${installment}</InstallmentCnt>
+  <Amount>${amount}</Amount>
+  <CurrencyCode>${currency}</CurrencyCode>
+  <CardholderPresentCode>0</CardholderPresentCode>
+  <MotoInd>H</MotoInd>
+  <Description></Description>
+</Transaction>
+</GVPSRequest>`;
   }
 }

@@ -43,13 +43,10 @@ const transactionSchema = new mongoose.Schema({
     masked: String,          // "5401 34** **** 7890"
     bin: Number              // 54013412
   },
-  // BIN bilgisi
+  // BIN bilgisi (bank, brand, type, family, country)
   bin: {
-    bank: String,
-    brand: String,           // visa, mastercard
-    type: String,            // credit, debit
-    family: String,          // bonus, world, axess
-    country: String
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
   // Müşteri
   customer: {
@@ -64,15 +61,10 @@ const transactionSchema = new mongoose.Schema({
     enum: ['pending', 'processing', 'success', 'failed'],
     default: 'pending'
   },
-  // 3D Secure
+  // 3D Secure - Mixed type to allow provider-specific data (formData, confirm3D, etc.)
   secure: {
-    enabled: {
-      type: Boolean,
-      default: true
-    },
-    eci: String,
-    cavv: String,
-    md: String
+    type: mongoose.Schema.Types.Mixed,
+    default: { enabled: true }
   },
   // Sonuç
   result: {

@@ -32,8 +32,7 @@ export default class BaseProvider {
     const defaultUrls = getBankUrls(virtualPos.bankCode, virtualPos.testMode);
     this.urls = {
       api: virtualPos.urls?.api || defaultUrls?.api,
-      gate: virtualPos.urls?.gate || defaultUrls?.gate,
-      ...virtualPos.urls
+      gate: virtualPos.urls?.gate || defaultUrls?.gate
     };
 
     // XML builder/parser
@@ -116,6 +115,17 @@ export default class BaseProvider {
    */
   async log(type, request, response) {
     this.transaction.addLog(type, request, response);
+    // Mark logs as modified (array in Mixed-like behavior)
+    this.transaction.markModified('logs');
+    await this.transaction.save();
+  }
+
+  /**
+   * Save secure data (formData, etc.)
+   * Must use markModified for Mixed type fields
+   */
+  async saveSecure() {
+    this.transaction.markModified('secure');
     await this.transaction.save();
   }
 
