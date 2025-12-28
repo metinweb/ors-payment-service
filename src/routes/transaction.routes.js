@@ -14,7 +14,7 @@ const router = Router();
  */
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, currency, from, to, company } = req.query;
+    const { page = 1, limit = 20, status, currency, from, to, startDate, endDate, orderId, company } = req.query;
 
     // Build query
     const query = {};
@@ -45,11 +45,26 @@ router.get('/', async (req, res) => {
       query.currency = currency.toLowerCase();
     }
 
-    // Date range filter
-    if (from || to) {
+    // Date range filter (support both from/to and startDate/endDate)
+    const dateFrom = startDate || from;
+    const dateTo = endDate || to;
+    if (dateFrom || dateTo) {
       query.createdAt = {};
-      if (from) query.createdAt.$gte = new Date(from);
-      if (to) query.createdAt.$lte = new Date(to);
+      if (dateFrom) query.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) {
+        // End of day for endDate
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = endOfDay;
+      }
+    }
+
+    // Order ID filter (search in logs)
+    if (orderId) {
+      query.$or = [
+        { 'logs.request.OrderId': { $regex: orderId, $options: 'i' } },
+        { 'logs.request.orderId': { $regex: orderId, $options: 'i' } }
+      ];
     }
 
     // Pagination
@@ -58,7 +73,7 @@ router.get('/', async (req, res) => {
 
     const transactions = await Transaction.find(query)
       .populate('pos', 'name provider currency')
-      .select('-logs -card.holder -card.number -card.expiry -card.cvv')
+      .select('-card.holder -card.number -card.expiry -card.cvv')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
