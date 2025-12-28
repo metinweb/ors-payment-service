@@ -111,10 +111,33 @@ export default class BaseProvider {
   }
 
   /**
+   * Sanitize object for MongoDB (remove $ prefixed keys from xml2js)
+   */
+  sanitizeForMongo(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.sanitizeForMongo(item));
+    }
+
+    const sanitized = {};
+    for (const [key, value] of Object.entries(obj)) {
+      // Replace $ with underscore for MongoDB compatibility
+      const safeKey = key.startsWith('$') ? '_' + key.slice(1) : key;
+      sanitized[safeKey] = this.sanitizeForMongo(value);
+    }
+    return sanitized;
+  }
+
+  /**
    * Add log to transaction
    */
   async log(type, request, response) {
-    this.transaction.addLog(type, request, response);
+    // Sanitize objects for MongoDB (xml2js creates $ prefixed keys)
+    const safeRequest = this.sanitizeForMongo(request);
+    const safeResponse = this.sanitizeForMongo(response);
+
+    this.transaction.addLog(type, safeRequest, safeResponse);
     // Mark logs as modified (array in Mixed-like behavior)
     this.transaction.markModified('logs');
     await this.transaction.save();

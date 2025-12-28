@@ -50,14 +50,28 @@ export default class QNBProvider extends BaseProvider {
     return this.transaction.installment > 1 ? this.transaction.installment.toString() : '0';
   }
 
+  /**
+   * Generate microtime format like PHP's microtime()
+   * PHP returns: "0.12345678 1234567890" (fractional + space + unix timestamp)
+   */
+  microtime() {
+    const now = Date.now() / 1000;
+    const sec = Math.floor(now);
+    const micro = (now - sec).toFixed(8);
+    return micro + ' ' + sec;
+  }
+
   async initialize() {
     const card = this.getCard();
-    const { merchantId, userCode, merchantPassword } = this.credentials;
+    // Map VirtualPos credentials to QNB field names
+    const merchantId = this.credentials.merchantId;
+    const userCode = this.credentials.username;
+    const merchantPassword = this.credentials.secretKey;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();
     const callbackUrl = this.getCallbackUrl();
-    const rnd = Date.now().toString();
+    const rnd = this.microtime();  // PHP microtime() format
     const installment = this.formatInstallment();
 
     // Hash string: MbrId + OrderId + Amount + OkUrl + FailUrl + TxnType + InstallmentCount + Rnd + MerchantPass
@@ -137,7 +151,9 @@ export default class QNBProvider extends BaseProvider {
   }
 
   async processProvision(secureData) {
-    const { userCode, userPassword } = this.credentials;
+    // Map VirtualPos credentials to QNB field names
+    const userCode = this.credentials.username;
+    const userPassword = this.credentials.password;
     const confirm3D = this.transaction.secure?.confirm3D;
 
     const paymentData = {
@@ -231,7 +247,10 @@ export default class QNBProvider extends BaseProvider {
    */
   async directPayment() {
     const card = this.getCard();
-    const { merchantId, userCode, userPassword } = this.credentials;
+    // Map VirtualPos credentials to QNB field names
+    const merchantId = this.credentials.merchantId;
+    const userCode = this.credentials.username;
+    const userPassword = this.credentials.password;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();

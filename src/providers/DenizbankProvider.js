@@ -63,14 +63,27 @@ export default class DenizbankProvider extends BaseProvider {
     return this.transaction.installment > 1 ? this.transaction.installment.toString() : '';
   }
 
+  /**
+   * Generate microtime format like PHP's microtime()
+   * PHP returns: "0.12345678 1234567890" (fractional + space + unix timestamp)
+   */
+  microtime() {
+    const now = Date.now() / 1000;
+    const sec = Math.floor(now);
+    const micro = (now - sec).toFixed(8);
+    return micro + ' ' + sec;
+  }
+
   async initialize() {
     const card = this.getCard();
-    const { shopCode, merchantPassword } = this.credentials;
+    // Map VirtualPos credentials to Denizbank field names
+    const shopCode = this.credentials.merchantId;
+    const merchantPassword = this.credentials.secretKey;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();
     const callbackUrl = this.getCallbackUrl();
-    const rnd = Date.now().toString();
+    const rnd = this.microtime();  // PHP microtime() format: "0.12345678 1234567890"
     const installment = this.formatInstallment();
 
     // Hash string: ShopCode + OrderId + Amount + OkUrl + FailUrl + TxnType + InstallmentCount + Rnd + MerchantPass
@@ -165,7 +178,7 @@ export default class DenizbankProvider extends BaseProvider {
    * Verify hash from callback
    */
   verifyHash(postData) {
-    const { merchantPassword } = this.credentials;
+    const merchantPassword = this.credentials.secretKey;
 
     const hashParams = postData.HASHPARAMS;
     const hashParamsVal = postData.HASHPARAMSVAL;
@@ -191,7 +204,10 @@ export default class DenizbankProvider extends BaseProvider {
   }
 
   async processProvision(secureData) {
-    const { shopCode, userCode, userPassword } = this.credentials;
+    // Map VirtualPos credentials to Denizbank field names
+    const shopCode = this.credentials.merchantId;
+    const userCode = this.credentials.username;
+    const userPassword = this.credentials.password;
     const formData = this.transaction.secure?.formData;
     const confirm3D = this.transaction.secure?.confirm3D;
 
@@ -323,7 +339,10 @@ export default class DenizbankProvider extends BaseProvider {
    */
   async directPayment() {
     const card = this.getCard();
-    const { shopCode, userCode, userPassword } = this.credentials;
+    // Map VirtualPos credentials to Denizbank field names
+    const shopCode = this.credentials.merchantId;
+    const userCode = this.credentials.username;
+    const userPassword = this.credentials.password;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();

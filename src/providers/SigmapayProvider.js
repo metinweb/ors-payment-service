@@ -36,7 +36,12 @@ export default class SigmapayProvider extends BaseProvider {
   }
 
   async initialize() {
-    const { clientId, secretKey1, secretKey2 } = this.credentials;
+    // Map VirtualPos credentials to Sigmapay field names
+    // Sigmapay uses clientId = merchantId, secretKey1 and secretKey2 from extra field
+    const clientId = this.credentials.merchantId;
+    const extra = this.credentials.extra || {};
+    const secretKey1 = extra.secretKey1 || this.credentials.secretKey;
+    const secretKey2 = extra.secretKey2 || this.credentials.password;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();
