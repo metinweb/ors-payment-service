@@ -8,6 +8,87 @@ import crypto from 'crypto';
 import { URLSearchParams } from 'url';
 
 /**
+ * Türk banka kodları mapping
+ * Sayısal kodlar ve banka isimleri → bizim bankCode'larımız
+ */
+const BANK_CODE_MAP = {
+  // Sayısal kodlar (PayTR, iyzico vs.)
+  '46': 'akbank',
+  '62': 'garanti',
+  '67': 'ykb',
+  '64': 'isbank',
+  '12': 'halkbank',
+  '10': 'ziraat',
+  '15': 'vakifbank',
+  '32': 'teb',
+  '111': 'qnb',
+  '134': 'denizbank',
+  '99': 'ingbank',
+  '59': 'sekerbank',
+  '205': 'kuveytturk',
+  // Banka isimleri (case-insensitive match için)
+  'akbank': 'akbank',
+  'garanti': 'garanti',
+  'garanti bankası': 'garanti',
+  'garanti bbva': 'garanti',
+  'yapı kredi': 'ykb',
+  'yapı kredi bankası': 'ykb',
+  'yapi kredi': 'ykb',
+  'ykb': 'ykb',
+  'iş bankası': 'isbank',
+  'is bankasi': 'isbank',
+  'türkiye iş bankası': 'isbank',
+  'isbank': 'isbank',
+  'halkbank': 'halkbank',
+  'halk bankası': 'halkbank',
+  'ziraat': 'ziraat',
+  'ziraat bankası': 'ziraat',
+  'vakıfbank': 'vakifbank',
+  'vakifbank': 'vakifbank',
+  'teb': 'teb',
+  'türk ekonomi bankası': 'teb',
+  'qnb': 'qnb',
+  'qnb finansbank': 'qnb',
+  'finansbank': 'qnb',
+  'denizbank': 'denizbank',
+  'ing': 'ingbank',
+  'ing bank': 'ingbank',
+  'şekerbank': 'sekerbank',
+  'sekerbank': 'sekerbank',
+  'kuveyt türk': 'kuveytturk',
+  'kuveytturk': 'kuveytturk'
+};
+
+/**
+ * Banka kodunu veya ismini bizim bankCode formatına çevir
+ */
+function normalizeBankCode(code, bankName) {
+  // Önce sayısal kodu dene
+  if (code) {
+    const codeStr = String(code).toLowerCase();
+    if (BANK_CODE_MAP[codeStr]) {
+      return BANK_CODE_MAP[codeStr];
+    }
+  }
+
+  // Banka isminden çıkar
+  if (bankName) {
+    const nameLower = bankName.toLowerCase().trim();
+    if (BANK_CODE_MAP[nameLower]) {
+      return BANK_CODE_MAP[nameLower];
+    }
+    // Kısmi eşleşme dene
+    for (const [key, value] of Object.entries(BANK_CODE_MAP)) {
+      if (nameLower.includes(key) || key.includes(nameLower)) {
+        return value;
+      }
+    }
+  }
+
+  return '';
+}
+
+/**
  * PayTR API'den BIN bilgisi al
  */
 async function getPaytr(binNo) {
@@ -42,7 +123,7 @@ async function getPaytr(binNo) {
         type: response.cardType === 'credit' ? 'credit' : response.cardType === 'debit' ? 'debit' : 'prepaid',
         family: response.brand?.toLowerCase() || '',
         bank: response.bank || '',
-        bankCode: String(response.bankCode || '').toLowerCase(),
+        bankCode: normalizeBankCode(response.bankCode, response.bank),
         country: 'TR',
         source: 'paytr'
       };
@@ -112,7 +193,7 @@ async function getIyzico(binNo) {
         type,
         family,
         bank: result.bankName || '',
-        bankCode: String(result.bankCode || '').toLowerCase(),
+        bankCode: normalizeBankCode(result.bankCode, result.bankName),
         country: 'TR',
         source: 'iyzico'
       };
@@ -148,13 +229,14 @@ async function getBinCheck(binNo) {
 
     if (response.success && response.BIN?.valid) {
       const bin = response.BIN;
+      const bankName = bin.issuer?.name || '';
       return {
         bin: bin_number,
         brand: (bin.scheme || '').toLowerCase(),
         type: bin.type ? bin.type.toLowerCase() : 'credit',
         family: '',
-        bank: bin.issuer?.name || '',
-        bankCode: '',
+        bank: bankName,
+        bankCode: normalizeBankCode(null, bankName),
         country: bin.country?.alpha2 || '',
         source: 'bincheck'
       };
@@ -182,13 +264,14 @@ async function getBinList(binNo) {
 
     console.log('[BinLookup] BinList response:', result);
 
+    const bankName = result.bank?.name || '';
     return {
       bin: bin_number,
       brand: (result.scheme || '').toLowerCase(),
       type: (result.type || 'credit').toLowerCase(),
       family: '',
-      bank: result.bank?.name || '',
-      bankCode: '',
+      bank: bankName,
+      bankCode: normalizeBankCode(null, bankName),
       country: result.country?.alpha2 || '',
       source: 'binlist'
     };
