@@ -264,11 +264,16 @@ const virtualPosSchema = new mongoose.Schema({
     posnetId: String,        // YKB için
     extra: String            // Diğer provider-specific alanlar (JSON string, şifreli)
   },
-  // Ödeme modeli (3D Secure modeli)
+  // 3D Secure modeli (her zaman aktif, sadece model seçilir)
   paymentModel: {
     type: String,
-    enum: ['3d', '3d_pay', '3d_host', 'regular'],
+    enum: ['3d', '3d_pay', '3d_host'],
     default: '3d'
+  },
+  // 3D'siz ödeme izni (ödeme linki vb. durumlar için)
+  allowDirectPayment: {
+    type: Boolean,
+    default: false
   },
   // 3D Secure ayarları
   threeDSecure: {
