@@ -408,8 +408,9 @@ export default class YKBProvider extends BaseProvider {
     const macRaw = this.hashString(
       xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey
     );
-    // URL encode + signs as per PHP implementation (str_replace('+', '%2B', $macData))
-    const macData = macRaw.replace(/\+/g, '%2B');
+    // Old Node.js code uses .replace('+', '%2B') which only replaces FIRST occurrence
+    // (not a regex, so literal string replacement)
+    const macData = macRaw.replace('+', '%2B');
 
     console.log('MAC calculation:', {
       xid, amount, currencyCode, merchantId,
