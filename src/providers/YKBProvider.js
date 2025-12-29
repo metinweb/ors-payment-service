@@ -73,70 +73,128 @@ export default class YKBProvider extends BaseProvider {
   }
 
   /**
-   * Decrypt MerchantPacket using Triple DES
+   * Decrypt MerchantPacket using Triple DES CBC
+   * YKB MerchantPacket format:
+   * - First 16 hex chars: IV (8 bytes binary)
+   * - Rest: Encrypted data (hex encoded)
+   * Key: MD5(storeKey) → uppercase → first 24 chars
    */
   decryptMerchantPacket(encryptedData, storeKey) {
-    try {
-      // Triple DES decryption with ECB mode
-      const keyBuffer = Buffer.alloc(24);
-      const storeKeyBuffer = Buffer.from(storeKey, 'utf8');
-      storeKeyBuffer.copy(keyBuffer);
-      // Pad key to 24 bytes if needed (3DES requires 24-byte key)
-      if (storeKeyBuffer.length < 24) {
-        storeKeyBuffer.copy(keyBuffer, 16, 0, 8);
+    console.log('=== YKB DECRYPT DEBUG ===');
+    console.log('MerchantPacket length:', encryptedData.length);
+    console.log('MerchantPacket (first 50):', encryptedData.substring(0, 50));
+    console.log('StoreKey length:', storeKey ? storeKey.length : 0);
+
+    // Try multiple decryption methods
+    const methods = [
+      () => this.tryDecrypt(encryptedData, storeKey, 'full'),      // Full data after IV
+      () => this.tryDecrypt(encryptedData, storeKey, 'minus8'),    // Old format: skip last 8 hex chars
+      () => this.tryDecrypt(encryptedData, storeKey, 'minus16'),   // Skip last 16 hex chars
+    ];
+
+    for (const method of methods) {
+      const result = method();
+      if (result) {
+        return result;
       }
-
-      const decipher = crypto.createDecipheriv('des-ede3', keyBuffer, Buffer.alloc(0));
-      decipher.setAutoPadding(true);
-
-      const encryptedBuffer = Buffer.from(encryptedData, 'base64');
-      let decrypted = decipher.update(encryptedBuffer, null, 'utf8');
-      decrypted += decipher.final('utf8');
-
-      // Parse the decrypted data (format: key1=value1;key2=value2;...)
-      const result = {};
-      decrypted.split(';').forEach(pair => {
-        const [key, value] = pair.split('=');
-        if (key && value !== undefined) {
-          result[key.trim()] = value.trim();
-        }
-      });
-
-      return result;
-    } catch (error) {
-      console.error('Decrypt error:', error);
-      // Try alternative decryption for compatibility
-      return this.decryptMerchantPacketAlt(encryptedData, storeKey);
     }
+
+    console.error('All decryption methods failed');
+    return null;
   }
 
   /**
-   * Alternative decryption method
+   * Try decryption with specific data extraction method
    */
-  decryptMerchantPacketAlt(encryptedData, storeKey) {
+  tryDecrypt(encryptedData, storeKey, mode) {
     try {
-      // Create 24-byte key from storeKey
-      const key = crypto.createHash('md5').update(storeKey).digest();
-      const keyBuffer = Buffer.concat([key, key.slice(0, 8)]);
+      // Key: MD5 hash of storeKey, uppercase, first 24 chars (24 bytes as UTF-8)
+      const md5Hash = crypto.createHash('md5').update(storeKey).digest('hex');
+      const keyString = md5Hash.toUpperCase().substring(0, 24);
+      const keyBuffer = Buffer.from(keyString, 'utf8');
 
-      const decipher = crypto.createDecipheriv('des-ede3-ecb', keyBuffer, Buffer.alloc(0));
-      decipher.setAutoPadding(true);
+      // IV: First 16 hex chars → 8 bytes binary
+      const ivHex = encryptedData.substring(0, 16);
+      const ivBuffer = Buffer.from(ivHex, 'hex');
 
-      const encryptedBuffer = Buffer.from(encryptedData, 'base64');
-      let decrypted = decipher.update(encryptedBuffer, null, 'utf8');
+      // Extract data based on mode
+      let dataHex;
+      switch (mode) {
+        case 'full':
+          // All data after IV
+          dataHex = encryptedData.substring(16);
+          break;
+        case 'minus8':
+          // Old format: skip last 8 hex chars (PHP: strlen - 24, but we already skipped 16)
+          dataHex = encryptedData.substring(16, encryptedData.length - 8);
+          break;
+        case 'minus16':
+          // Skip last 16 hex chars
+          dataHex = encryptedData.substring(16, encryptedData.length - 16);
+          break;
+        default:
+          dataHex = encryptedData.substring(16);
+      }
+
+      const dataBuffer = Buffer.from(dataHex, 'hex');
+
+      console.log(`[${mode}] Data buffer length: ${dataBuffer.length}, mod 8: ${dataBuffer.length % 8}`);
+
+      // Check block alignment
+      if (dataBuffer.length % 8 !== 0) {
+        console.log(`[${mode}] Data not block-aligned, skipping`);
+        return null;
+      }
+
+      // Decrypt using Triple DES CBC
+      const decipher = crypto.createDecipheriv('des-ede3-cbc', keyBuffer, ivBuffer);
+      decipher.setAutoPadding(false);
+
+      let decrypted = decipher.update(dataBuffer, null, 'utf8');
       decrypted += decipher.final('utf8');
 
-      const result = {};
-      decrypted.split(';').forEach(pair => {
-        const [key, value] = pair.split('=');
-        if (key && value !== undefined) {
-          result[key.trim()] = value.trim();
-        }
-      });
+      // Remove padding (null bytes and PKCS5/7 padding)
+      decrypted = decrypted.replace(/[\x00-\x08]+$/, '');
 
+      console.log(`[${mode}] Decrypted (first 100):`, decrypted.substring(0, 100));
+
+      // Validate decrypted data - should contain semicolons
+      if (!decrypted.includes(';')) {
+        console.log(`[${mode}] Invalid format - no semicolons found`);
+        return null;
+      }
+
+      // Parse the decrypted data
+      // Format: mid;tid;pay;instcount;xid;totalPoint;totalPointAmount;weburl;hostip;port;tds_tx_status;tds_md_status;tds_md_errormessage;trantime;currency
+      const parts = decrypted.split(';');
+
+      if (parts.length < 12) {
+        console.log(`[${mode}] Invalid format - not enough fields (${parts.length})`);
+        return null;
+      }
+
+      const result = {
+        mid: parts[0],
+        tid: parts[1],
+        pay: parts[2],
+        instcount: parts[3],
+        xid: parts[4],
+        totalPoint: parts[5],
+        totalPointAmount: parts[6],
+        weburl: parts[7],
+        hostip: parts[8],
+        port: parts[9],
+        tds_tx_status: parts[10],
+        tds_md_status: parts[11],
+        tds_md_errormessage: parts[12] || '',
+        trantime: parts[13] || '',
+        currency: parts[14] || ''
+      };
+
+      console.log(`[${mode}] SUCCESS - tds_md_status:`, result.tds_md_status);
       return result;
     } catch (error) {
-      console.error('Alt decrypt error:', error);
+      console.log(`[${mode}] Decrypt error:`, error.message);
       return null;
     }
   }
@@ -146,7 +204,7 @@ export default class YKBProvider extends BaseProvider {
    */
   async initialize() {
     const card = this.getCard();
-    const { merchantId, terminalId, posnetId, secretKey } = this.credentials;
+    const { merchantId, terminalId, posnetId, secretKey, username, password } = this.credentials;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmountYKB();
@@ -158,6 +216,8 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         oosRequestData: {
           posnetid: posnetId,
           ccno: card.number.replace(/\s/g, ''),
@@ -280,6 +340,20 @@ export default class YKBProvider extends BaseProvider {
 
     // Decrypt merchant packet
     const { secretKey } = this.credentials;
+    console.log('YKB Callback - secretKey exists:', !!secretKey, 'length:', secretKey ? secretKey.length : 0);
+
+    if (!secretKey) {
+      console.error('YKB ERROR: secretKey is empty or null!');
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NO_SECRET_KEY',
+        message: 'POS storeKey/secretKey bulunamadi'
+      };
+      await this.saveSecure();
+      return { success: false, message: this.transaction.result.message };
+    }
+
     const decrypted = this.decryptMerchantPacket(MerchantPacket, secretKey);
 
     if (!decrypted) {
@@ -322,7 +396,7 @@ export default class YKBProvider extends BaseProvider {
    * Process provision - Step 4: Complete payment
    */
   async processProvision(bankPacket, merchantPacket, sign, decrypted) {
-    const { merchantId, terminalId, secretKey } = this.credentials;
+    const { merchantId, terminalId, secretKey, username, password } = this.credentials;
     const formData = this.transaction.secure?.formData;
 
     // Calculate MAC
@@ -333,12 +407,20 @@ export default class YKBProvider extends BaseProvider {
     const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
     const macData = this.hashString(
       xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey
-    );
+    ).replace(/\+/g, '%2B');  // URL encode plus signs
+
+    console.log('MAC calculation:', {
+      xid, amount, currencyCode, merchantId,
+      hashedStoreKey: hashedStoreKey.replace(/\+/g, '%2B'),
+      macData
+    });
 
     const request = {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         oosTranData: {
           mac: macData,
           bankData: bankPacket,
@@ -399,7 +481,7 @@ export default class YKBProvider extends BaseProvider {
    */
   async directPayment() {
     const card = this.getCard();
-    const { merchantId, terminalId } = this.credentials;
+    const { merchantId, terminalId, username, password } = this.credentials;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmountYKB();
@@ -410,6 +492,8 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         sale: {
           amount: amount,
           ccno: card.number.replace(/\s/g, ''),
@@ -471,7 +555,7 @@ export default class YKBProvider extends BaseProvider {
    * Refund a completed payment
    */
   async refund(originalTransaction) {
-    const { merchantId, terminalId } = this.credentials;
+    const { merchantId, terminalId, username, password } = this.credentials;
 
     const orderId = originalTransaction.orderId || originalTransaction.secure?.formData?.orderId || originalTransaction._id.toString().padStart(20, '0').slice(0, 20);
     const amount = this.formatAmountYKB();
@@ -482,6 +566,8 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         return: {
           amount: amount,
           currencyCode: currencyCode,
@@ -548,7 +634,7 @@ export default class YKBProvider extends BaseProvider {
    * Cancel a payment (reverse)
    */
   async cancel(originalTransaction) {
-    const { merchantId, terminalId } = this.credentials;
+    const { merchantId, terminalId, username, password } = this.credentials;
 
     const hostLogKey = originalTransaction.result?.refNumber || '';
     const authCode = originalTransaction.result?.authCode || '';
@@ -557,6 +643,8 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         reverse: {
           hostlogkey: hostLogKey,
           authCode: authCode,
@@ -623,12 +711,14 @@ export default class YKBProvider extends BaseProvider {
    * Query payment status
    */
   async status(orderId) {
-    const { merchantId, terminalId } = this.credentials;
+    const { merchantId, terminalId, username, password } = this.credentials;
 
     const request = {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         agreement: {
           orderID: orderId
         }
@@ -667,7 +757,7 @@ export default class YKBProvider extends BaseProvider {
    */
   async preAuth() {
     const card = this.getCard();
-    const { merchantId, terminalId } = this.credentials;
+    const { merchantId, terminalId, username, password } = this.credentials;
 
     const orderId = this.getOrderId();
     const amount = this.formatAmountYKB();
@@ -678,6 +768,8 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         auth: {
           amount: amount,
           ccno: card.number.replace(/\s/g, ''),
@@ -745,7 +837,7 @@ export default class YKBProvider extends BaseProvider {
    * Post-authorization (capture pre-auth)
    */
   async postAuth(preAuthTransaction) {
-    const { merchantId, terminalId } = this.credentials;
+    const { merchantId, terminalId, username, password } = this.credentials;
 
     const orderId = preAuthTransaction.orderId || preAuthTransaction._id.toString().padStart(20, '0').slice(0, 20);
     const amount = this.formatAmountYKB();
@@ -756,6 +848,8 @@ export default class YKBProvider extends BaseProvider {
       posnetRequest: {
         mid: merchantId,
         tid: terminalId,
+        username: username,
+        password: password,
         capt: {
           amount: amount,
           currencyCode: currencyCode,
