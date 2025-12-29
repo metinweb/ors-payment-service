@@ -157,7 +157,7 @@ export default class BaseProvider {
   // ==========================================
 
   /**
-   * Initialize 3D Secure
+   * Initialize 3D Secure payment
    * @returns {Promise<{success: boolean, formData?: object, url?: string, error?: string}>}
    */
   async initialize() {
@@ -179,6 +179,129 @@ export default class BaseProvider {
    */
   async processCallback(postData) {
     throw new Error('processCallback() must be implemented');
+  }
+
+  // ==========================================
+  // Optional methods - override if supported
+  // ==========================================
+
+  /**
+   * Direct payment (Non-3D Secure)
+   * @returns {Promise<{success: boolean, message?: string, error?: string}>}
+   */
+  async directPayment() {
+    throw new Error(`directPayment() is not supported by ${this.constructor.name}`);
+  }
+
+  /**
+   * Refund a completed payment
+   * @param {Transaction} originalTransaction - Original payment transaction
+   * @returns {Promise<{success: boolean, message?: string, refNumber?: string}>}
+   */
+  async refund(originalTransaction) {
+    throw new Error(`refund() is not supported by ${this.constructor.name}`);
+  }
+
+  /**
+   * Cancel a payment (same day only - before batch close)
+   * @param {Transaction} originalTransaction - Original payment transaction
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  async cancel(originalTransaction) {
+    throw new Error(`cancel() is not supported by ${this.constructor.name}`);
+  }
+
+  /**
+   * Query payment status
+   * @param {string} orderId - Bank order ID
+   * @returns {Promise<{success: boolean, status?: string, message?: string}>}
+   */
+  async status(orderId) {
+    throw new Error(`status() is not supported by ${this.constructor.name}`);
+  }
+
+  /**
+   * Get order history
+   * @param {string} orderId - Bank order ID
+   * @returns {Promise<{success: boolean, history?: array}>}
+   */
+  async history(orderId) {
+    throw new Error(`history() is not supported by ${this.constructor.name}`);
+  }
+
+  /**
+   * Pre-authorization (block amount without capture)
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  async preAuth() {
+    throw new Error(`preAuth() is not supported by ${this.constructor.name}`);
+  }
+
+  /**
+   * Post-authorization (capture pre-authorized amount)
+   * @param {Transaction} preAuthTransaction - Pre-auth transaction
+   * @returns {Promise<{success: boolean, message?: string}>}
+   */
+  async postAuth(preAuthTransaction) {
+    throw new Error(`postAuth() is not supported by ${this.constructor.name}`);
+  }
+
+  // ==========================================
+  // Capability check methods
+  // ==========================================
+
+  /**
+   * Get provider capabilities
+   * Override in subclass to declare supported operations
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,        // 3D Secure payment
+      paymentDirect: false,   // Non-3D payment
+      refund: false,          // Refund operation
+      cancel: false,          // Cancel operation
+      status: false,          // Status query
+      history: false,         // Order history
+      preAuth: false,         // Pre-authorization
+      postAuth: false         // Post-authorization
+    };
+  }
+
+  /**
+   * Check if operation is supported
+   */
+  supports(operation) {
+    return this.getCapabilities()[operation] === true;
+  }
+
+  // ==========================================
+  // Response normalization helpers
+  // ==========================================
+
+  /**
+   * Normalize success response
+   */
+  successResponse(data = {}) {
+    return {
+      success: true,
+      message: data.message || 'İşlem başarılı',
+      authCode: data.authCode || null,
+      refNumber: data.refNumber || null,
+      provisionNumber: data.provisionNumber || null,
+      transactionId: data.transactionId || null
+    };
+  }
+
+  /**
+   * Normalize error response
+   */
+  errorResponse(code, message, rawResponse = null) {
+    return {
+      success: false,
+      code: code || 'ERROR',
+      message: message || 'İşlem başarısız',
+      rawResponse
+    };
   }
 
   /**

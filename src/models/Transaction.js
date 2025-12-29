@@ -4,7 +4,7 @@ import { encrypt, decrypt, maskCardNumber } from '../config/encryption.js';
 const logEntrySchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['init', '3d_form', '3d_callback', 'provision', 'error']
+    enum: ['init', '3d_form', '3d_callback', 'provision', 'refund', 'cancel', 'status', 'pre_auth', 'post_auth', 'error']
   },
   request: mongoose.Schema.Types.Mixed,
   response: mongoose.Schema.Types.Mixed,
@@ -20,6 +20,25 @@ const transactionSchema = new mongoose.Schema({
     ref: 'VirtualPos',
     required: true
   },
+  // İşlem tipi
+  type: {
+    type: String,
+    enum: ['payment', 'pre_auth', 'post_auth', 'refund', 'cancel'],
+    default: 'payment'
+  },
+  // Ödeme modeli
+  paymentModel: {
+    type: String,
+    enum: ['regular', '3d', '3d_pay', '3d_host'],
+    default: '3d'
+  },
+  // Bağlı işlem (refund/cancel/post_auth için)
+  parentTransaction: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Transaction'
+  },
+  // Banka tarafı sipariş numarası
+  orderId: String,
   // Ödeme bilgisi
   amount: {
     type: Number,
@@ -58,7 +77,7 @@ const transactionSchema = new mongoose.Schema({
   // Durum
   status: {
     type: String,
-    enum: ['pending', 'processing', 'success', 'failed'],
+    enum: ['pending', 'processing', 'success', 'failed', 'cancelled', 'refunded'],
     default: 'pending'
   },
   // 3D Secure - Mixed type to allow provider-specific data (formData, confirm3D, etc.)
@@ -71,15 +90,25 @@ const transactionSchema = new mongoose.Schema({
     success: Boolean,
     code: String,
     message: String,
-    authCode: String,
-    refNumber: String
+    authCode: String,           // Onay kodu
+    refNumber: String,          // Referans numarası
+    provisionNumber: String,    // Provizyon numarası
+    hostRefNumber: String,      // Host referans numarası
+    transactionId: String,      // Banka işlem ID
+    rawResponse: mongoose.Schema.Types.Mixed  // Ham banka cevabı
   },
   // Loglar (array)
   logs: [logEntrySchema],
   // Harici referans
   externalId: String,
+  // Rezervasyon kodu (ORS için)
+  bookingCode: String,
   // Tamamlanma zamanı
-  completedAt: Date
+  completedAt: Date,
+  // İade zamanı
+  refundedAt: Date,
+  // İptal zamanı
+  cancelledAt: Date
 }, {
   timestamps: true
 });
@@ -87,7 +116,10 @@ const transactionSchema = new mongoose.Schema({
 // Indexes
 transactionSchema.index({ pos: 1, createdAt: -1 });
 transactionSchema.index({ status: 1 });
+transactionSchema.index({ type: 1 });
 transactionSchema.index({ externalId: 1 });
+transactionSchema.index({ orderId: 1 });
+transactionSchema.index({ parentTransaction: 1 });
 transactionSchema.index({ 'card.bin': 1 });
 transactionSchema.index({ createdAt: -1 });
 
@@ -137,6 +169,31 @@ transactionSchema.methods.clearCvv = async function () {
 // Add log entry
 transactionSchema.methods.addLog = function (type, request, response) {
   this.logs.push({ type, request, response, at: new Date() });
+};
+
+// İade edilebilir mi kontrol et
+transactionSchema.methods.canRefund = function () {
+  return this.type === 'payment' &&
+         this.status === 'success' &&
+         !this.refundedAt;
+};
+
+// İptal edilebilir mi kontrol et (gün sonu öncesi)
+transactionSchema.methods.canCancel = function () {
+  if (this.type !== 'payment' || this.status !== 'success') return false;
+
+  // Gün sonu kontrolü - işlem bugün mü yapılmış?
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const txDate = new Date(this.createdAt);
+  txDate.setHours(0, 0, 0, 0);
+
+  return txDate.getTime() === today.getTime();
+};
+
+// Post-auth yapılabilir mi (pre-auth için)
+transactionSchema.methods.canPostAuth = function () {
+  return this.type === 'pre_auth' && this.status === 'success';
 };
 
 // Safe JSON (hide encrypted card)

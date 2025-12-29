@@ -3,7 +3,7 @@
  */
 
 import crypto from 'crypto';
-import BaseProvider from './BaseProvider.js';
+import BaseProvider, { CURRENCY_CODES } from './BaseProvider.js';
 
 export default class GarantiProvider extends BaseProvider {
   constructor(transaction, virtualPos) {
@@ -307,6 +307,570 @@ export default class GarantiProvider extends BaseProvider {
     <TxnID>${secureData.xid || ''}</TxnID>
     <Md>${secureData.md || ''}</Md>
   </Secure3D>
+</Transaction>
+</GVPSRequest>`;
+  }
+
+  /**
+   * Provider capabilities
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,
+      paymentDirect: true,
+      refund: true,
+      cancel: true,
+      status: true,
+      history: false,
+      preAuth: true,
+      postAuth: true
+    };
+  }
+
+  /**
+   * Refund a completed payment
+   */
+  async refund(originalTransaction) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = originalTransaction.orderId || originalTransaction.secure?.formData?.orderid;
+    const amount = this.formatAmount(false);
+    const currency = this.getCurrencyCode();
+
+    // For refund, generate hash with empty card number
+    const securityHash = this.generateProvisionHash(orderId, '', amount, currency);
+
+    const refundXml = this.buildRefundXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId,
+      amount,
+      currency,
+      refNumber: originalTransaction.result?.refNumber || ''
+    });
+
+    try {
+      await this.log('refund', { orderId, amount }, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'data=' + refundXml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('refund', { orderId }, result);
+
+      if (result.Transaction?.Response?.Message === 'Approved') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum,
+          message: 'İade başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Mark original transaction as refunded
+        originalTransaction.refundedAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İade başarılı',
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.Transaction?.Response?.ReasonCode,
+          message: result.Transaction?.Response?.ErrorMsg || 'İade reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(
+          result.Transaction?.Response?.ReasonCode,
+          result.Transaction?.Response?.ErrorMsg || 'İade reddedildi',
+          result
+        );
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Build refund XML
+   */
+  buildRefundXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId, amount, currency, refNumber } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>PROVRFN</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>PROVRFN</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress>${this.transaction.customer?.ip || ''}</IPAddress>
+  <EmailAddress>${this.transaction.customer?.email || ''}</EmailAddress>
+</Customer>
+<Order>
+  <OrderID>${orderId}</OrderID>
+</Order>
+<Transaction>
+  <Type>refund</Type>
+  <Amount>${amount}</Amount>
+  <CurrencyCode>${currency}</CurrencyCode>
+  <OriginalRetrefNum>${refNumber}</OriginalRetrefNum>
+</Transaction>
+</GVPSRequest>`;
+  }
+
+  /**
+   * Cancel a payment (same day void)
+   */
+  async cancel(originalTransaction) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = originalTransaction.orderId || originalTransaction.secure?.formData?.orderid;
+    const amount = Math.round(originalTransaction.amount * 100).toString();
+    const currency = CURRENCY_CODES[originalTransaction.currency] || 949;
+
+    // For cancel, generate hash with empty card number
+    const securityHash = this.generateProvisionHash(orderId, '', amount, currency);
+
+    const cancelXml = this.buildCancelXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId,
+      amount,
+      currency,
+      refNumber: originalTransaction.result?.refNumber || ''
+    });
+
+    try {
+      await this.log('cancel', { orderId, amount }, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'data=' + cancelXml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('cancel', { orderId }, result);
+
+      if (result.Transaction?.Response?.Message === 'Approved') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum,
+          message: 'İptal başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Mark original transaction as cancelled
+        originalTransaction.cancelledAt = new Date();
+        originalTransaction.status = 'cancelled';
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İptal başarılı',
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.Transaction?.Response?.ReasonCode,
+          message: result.Transaction?.Response?.ErrorMsg || 'İptal reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(
+          result.Transaction?.Response?.ReasonCode,
+          result.Transaction?.Response?.ErrorMsg || 'İptal reddedildi',
+          result
+        );
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Build cancel XML
+   */
+  buildCancelXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId, amount, currency, refNumber } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>PROVRFN</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>PROVRFN</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress>${this.transaction.customer?.ip || ''}</IPAddress>
+  <EmailAddress>${this.transaction.customer?.email || ''}</EmailAddress>
+</Customer>
+<Order>
+  <OrderID>${orderId}</OrderID>
+</Order>
+<Transaction>
+  <Type>void</Type>
+  <Amount>${amount}</Amount>
+  <CurrencyCode>${currency}</CurrencyCode>
+  <OriginalRetrefNum>${refNumber}</OriginalRetrefNum>
+</Transaction>
+</GVPSRequest>`;
+  }
+
+  /**
+   * Query payment status
+   */
+  async status(orderId) {
+    const { merchantId, terminalId } = this.credentials;
+
+    // For status query, generate hash with empty amount/currency
+    const securityHash = this.generateProvisionHash(orderId, '', '1', '949');
+
+    const statusXml = this.buildStatusXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId
+    });
+
+    try {
+      await this.log('status', { orderId }, { status: 'querying' });
+
+      const response = await this.post(this.urls.api, 'data=' + statusXml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('status', { orderId }, result);
+
+      if (result.Transaction?.Response?.Message === 'Approved' || result.Order) {
+        return {
+          success: true,
+          orderId,
+          status: result.Order?.OrderStatus || 'unknown',
+          amount: result.Order?.TotalAmount,
+          authCode: result.Order?.AuthCode,
+          refNumber: result.Order?.RetrefNum,
+          rawResponse: result
+        };
+      } else {
+        return this.errorResponse(
+          result.Transaction?.Response?.ReasonCode,
+          result.Transaction?.Response?.ErrorMsg || 'Sorgu başarısız',
+          result
+        );
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Build status query XML
+   */
+  buildStatusXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>${this.provUserId}</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>${this.provUserId}</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress></IPAddress>
+  <EmailAddress></EmailAddress>
+</Customer>
+<Order>
+  <OrderID>${orderId}</OrderID>
+</Order>
+<Transaction>
+  <Type>orderinq</Type>
+  <Amount>1</Amount>
+  <CurrencyCode>949</CurrencyCode>
+</Transaction>
+</GVPSRequest>`;
+  }
+
+  /**
+   * Pre-authorization (block amount)
+   */
+  async preAuth() {
+    // Similar to directPayment but with Type=preauth
+    const card = this.getCard();
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = this.getOrderId();
+    const amount = this.formatAmount(false);
+    const currency = this.getCurrencyCode();
+    const installment = this.transaction.installment > 1 ? this.transaction.installment.toString() : '';
+    const cardNumber = card.number.replace(/\s/g, '');
+
+    const securityHash = this.generateProvisionHash(orderId, cardNumber, amount, currency);
+
+    const preAuthXml = this.buildPreAuthXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId,
+      amount,
+      currency,
+      installment,
+      card: {
+        number: cardNumber,
+        expiry: this.formatExpiryMonth(card.expiry) + this.formatExpiryYear(card.expiry),
+        cvv: card.cvv
+      }
+    });
+
+    try {
+      // Store orderId for later postAuth
+      this.transaction.orderId = orderId;
+      await this.log('pre_auth', { orderId, amount }, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'data=' + preAuthXml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('pre_auth', { orderId }, result);
+
+      if (result.Transaction?.Response?.Message === 'Approved') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum,
+          message: 'Ön provizyon başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.clearCvv();
+
+        return this.successResponse({
+          message: 'Ön provizyon başarılı',
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.Transaction?.Response?.ReasonCode,
+          message: result.Transaction?.Response?.ErrorMsg || 'Ön provizyon reddedildi'
+        };
+        await this.saveSecure();
+
+        return this.errorResponse(
+          result.Transaction?.Response?.ReasonCode,
+          result.Transaction?.Response?.ErrorMsg || 'Ön provizyon reddedildi',
+          result
+        );
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.saveSecure();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Build pre-auth XML
+   */
+  buildPreAuthXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId, amount, currency, installment, card } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>${this.provUserId}</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>${this.provUserId}</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress>${this.transaction.customer?.ip || ''}</IPAddress>
+  <EmailAddress>${this.transaction.customer?.email || ''}</EmailAddress>
+</Customer>
+<Card>
+  <Number>${card.number}</Number>
+  <ExpireDate>${card.expiry}</ExpireDate>
+  <CVV2>${card.cvv}</CVV2>
+</Card>
+<Order>
+  <OrderID>${orderId}</OrderID>
+  <GroupID></GroupID>
+  <Description></Description>
+</Order>
+<Transaction>
+  <Type>preauth</Type>
+  <InstallmentCnt>${installment}</InstallmentCnt>
+  <Amount>${amount}</Amount>
+  <CurrencyCode>${currency}</CurrencyCode>
+  <CardholderPresentCode>0</CardholderPresentCode>
+  <MotoInd>H</MotoInd>
+  <Description></Description>
+</Transaction>
+</GVPSRequest>`;
+  }
+
+  /**
+   * Post-authorization (capture pre-auth)
+   */
+  async postAuth(preAuthTransaction) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = preAuthTransaction.orderId || preAuthTransaction.secure?.formData?.orderid;
+    const amount = this.formatAmount(false);
+    const currency = this.getCurrencyCode();
+
+    const securityHash = this.generateProvisionHash(orderId, '', amount, currency);
+
+    const postAuthXml = this.buildPostAuthXml({
+      mode: this.getMode(),
+      terminalId,
+      merchantId,
+      securityHash,
+      orderId,
+      amount,
+      currency,
+      refNumber: preAuthTransaction.result?.refNumber || ''
+    });
+
+    try {
+      await this.log('post_auth', { orderId, amount }, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'data=' + postAuthXml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('post_auth', { orderId }, result);
+
+      if (result.Transaction?.Response?.Message === 'Approved') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum,
+          message: 'Provizyon kapama başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        return this.successResponse({
+          message: 'Provizyon kapama başarılı',
+          authCode: result.Transaction?.AuthCode,
+          refNumber: result.Transaction?.RetrefNum
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.Transaction?.Response?.ReasonCode,
+          message: result.Transaction?.Response?.ErrorMsg || 'Provizyon kapama reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(
+          result.Transaction?.Response?.ReasonCode,
+          result.Transaction?.Response?.ErrorMsg || 'Provizyon kapama reddedildi',
+          result
+        );
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Build post-auth XML
+   */
+  buildPostAuthXml(params) {
+    const { mode, terminalId, merchantId, securityHash, orderId, amount, currency, refNumber } = params;
+
+    return `<?xml version="1.0" encoding="ISO-8859-9"?>
+<GVPSRequest>
+<Mode>${mode}</Mode>
+<Version>512</Version>
+<Terminal>
+  <ProvUserID>${this.provUserId}</ProvUserID>
+  <HashData>${securityHash}</HashData>
+  <UserID>${this.provUserId}</UserID>
+  <ID>${terminalId}</ID>
+  <MerchantID>${merchantId}</MerchantID>
+</Terminal>
+<Customer>
+  <IPAddress>${this.transaction.customer?.ip || ''}</IPAddress>
+  <EmailAddress>${this.transaction.customer?.email || ''}</EmailAddress>
+</Customer>
+<Order>
+  <OrderID>${orderId}</OrderID>
+</Order>
+<Transaction>
+  <Type>postauth</Type>
+  <Amount>${amount}</Amount>
+  <CurrencyCode>${currency}</CurrencyCode>
+  <OriginalRetrefNum>${refNumber}</OriginalRetrefNum>
 </Transaction>
 </GVPSRequest>`;
   }
