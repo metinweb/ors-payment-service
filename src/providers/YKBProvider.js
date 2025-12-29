@@ -405,13 +405,16 @@ export default class YKBProvider extends BaseProvider {
     const currencyCode = formData?.currencyCode;
 
     const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
-    const macData = this.hashString(
+    const macRaw = this.hashString(
       xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey
-    );  // MAC is sent in XML, no URL encoding needed
+    );
+    // URL encode + signs as per PHP implementation (str_replace('+', '%2B', $macData))
+    const macData = macRaw.replace(/\+/g, '%2B');
 
     console.log('MAC calculation:', {
       xid, amount, currencyCode, merchantId,
       hashedStoreKey,
+      macRaw,
       macData
     });
 
