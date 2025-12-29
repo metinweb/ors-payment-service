@@ -404,16 +404,30 @@ export default class YKBProvider extends BaseProvider {
     const amount = formData?.amount;
     const currencyCode = formData?.currencyCode;
 
-    const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
+    // Convert secretKey from comma-separated bytes (e.g., "124,74,123,119,124,45,82,37")
+    // to actual string (e.g., "|J{w|-R%") if needed
+    let storeKey = secretKey;
+    if (secretKey && secretKey.includes(',')) {
+      const bytes = secretKey.split(',').map(b => parseInt(b.trim(), 10));
+      storeKey = String.fromCharCode(...bytes);
+      console.log('Converted storeKey from comma-separated to bytes:', {
+        original: secretKey,
+        converted: storeKey,
+        originalLength: secretKey.length,
+        convertedLength: storeKey.length
+      });
+    }
+
+    const hashedStoreKey = this.hashString(storeKey + ';' + terminalId);
     const macRaw = this.hashString(
       xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey
     );
     // Old Node.js code uses .replace('+', '%2B') which only replaces FIRST occurrence
-    // (not a regex, so literal string replacement)
     const macData = macRaw.replace('+', '%2B');
 
     console.log('MAC calculation:', {
       xid, amount, currencyCode, merchantId,
+      storeKey,
       hashedStoreKey,
       macRaw,
       macData
