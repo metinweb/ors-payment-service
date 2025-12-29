@@ -333,7 +333,7 @@ const virtualPosSchema = new mongoose.Schema({
   // Bu POS hangi kart aileleri için avantajlı oran sunuyor
   supportedCardFamilies: {
     type: [String],
-    enum: ['world', 'bonus', 'maximum', 'axess', 'cardfinans', 'paraf', 'miles', 'bankkart', 'advantage', 'combo', 'shop&miles'],
+    enum: ['world', 'bonus', 'maximum', 'axess', 'cardfinans', 'paraf', 'miles', 'bankkart', 'advantage', 'combo', 'shop&miles', 'wings', 'flexi'],
     default: []
   }
 }, {
