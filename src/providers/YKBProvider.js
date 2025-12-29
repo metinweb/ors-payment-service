@@ -233,7 +233,12 @@ export default class YKBProvider extends BaseProvider {
       const xml = this.buildXml(request);
       await this.log('init', request, { status: 'sending' });
 
-      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      // YKB için Content-Type header gerekli
+      const response = await this.post(this.urls.api, 'xmldata=' + xml, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
       const result = await this.parseXml(response.data);
 
       await this.log('init', request, result);
@@ -307,7 +312,9 @@ export default class YKBProvider extends BaseProvider {
       merchantReturnURL: callbackUrl,
       lang: 'tr',
       url: '',
-      openANewWindow: '0'
+      openANewWindow: '0',
+      type: '3d',         // Eski kodda var - 3D secure tipi
+      vftCode: 'K001'     // Eski kodda var - doğrulama kodu
     };
 
     await this.log('3d_form', fields, { status: 'redirecting' });
@@ -395,6 +402,20 @@ export default class YKBProvider extends BaseProvider {
     const { merchantId, terminalId, secretKey, username, password } = this.credentials;
     const formData = this.transaction.secure?.formData;
 
+    // ===== DETAYLI DEBUG LOGLARI =====
+    console.log('========== YKB PROVISION DEBUG ==========');
+    console.log('Credentials:', {
+      merchantId,
+      terminalId,
+      username: username || '(BOŞ!)',
+      password: password ? '***' : '(BOŞ!)',
+      secretKey: secretKey ? secretKey.substring(0, 10) + '...' : '(BOŞ!)'
+    });
+    console.log('FormData:', formData);
+    console.log('Decrypted:', decrypted);
+    console.log('URL:', this.urls.api);
+    console.log('==========================================');
+
     // Calculate MAC - EXACTLY like old utils.js:
     // var macData = utils.hashString(
     //   decrypted.xid + ';' +
@@ -411,20 +432,21 @@ export default class YKBProvider extends BaseProvider {
     // hashString(storekey + ';' + tid)
     const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
 
+    // MAC string'i oluştur - eski kodla AYNI FORMATTA
+    const macString = xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey;
+    console.log('MAC Input String:', macString);
+
     // hashString(xid + ';' + amount + ';' + currency + ';' + mid + ';' + hashedStoreKey)
-    const macRaw = this.hashString(
-      xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey
-    );
+    const macRaw = this.hashString(macString);
 
     // .replace('+', '%2B') - only replaces FIRST occurrence (not regex)
     const macData = macRaw.replace('+', '%2B');
 
-    console.log('MAC calculation (old format):', {
+    console.log('MAC calculation:', {
       xid,
       amount,
       currencyCode,
       merchantId,
-      secretKey,
       terminalId,
       hashedStoreKey,
       macRaw,
@@ -449,9 +471,26 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
+
+      // XML'i logla
+      console.log('========== PROVISION XML ==========');
+      console.log(xml);
+      console.log('===================================');
+
       await this.log('provision', request, { status: 'sending' });
 
-      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      // Eski kodla AYNI şekilde gönder - Content-Type header ekle
+      const response = await this.post(this.urls.api, 'xmldata=' + xml, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+
+      // Raw response'u logla
+      console.log('========== PROVISION RAW RESPONSE ==========');
+      console.log(response.data);
+      console.log('=============================================');
+
       const result = await this.parseXml(response.data);
 
       await this.log('provision', request, result);
@@ -526,7 +565,9 @@ export default class YKBProvider extends BaseProvider {
       const xml = this.buildXml(request);
       await this.log('provision', request, { status: 'sending' });
 
-      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      const response = await this.post(this.urls.api, 'xmldata=' + xml, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
       const result = await this.parseXml(response.data);
 
       await this.log('provision', request, result);

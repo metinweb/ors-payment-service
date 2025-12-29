@@ -9,6 +9,7 @@ export const BANK_URLS = {
   // ============================================
   ykb: {
     test: {
+      // Eski PHP kodunda HTTP kullaniliyordu, HTTPS de calisiyor mu kontrol edilmeli
       api: 'https://setmpos.ykb.com/PosnetWebService/XML',
       gate: 'https://setmpos.ykb.com/3DSWebService/YKBPaymentService'
     },
