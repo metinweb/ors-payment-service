@@ -432,7 +432,8 @@ export default class IyzicoProvider extends BaseProvider {
       status: false,  // iyzico doesn't have a simple status query
       history: false,
       preAuth: false,  // iyzico supports but different flow
-      postAuth: false
+      postAuth: false,
+      paymentModels: ['3d', 'regular']
     };
   }
 

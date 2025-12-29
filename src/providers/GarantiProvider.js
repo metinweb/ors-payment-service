@@ -76,27 +76,31 @@ export default class GarantiProvider extends BaseProvider {
   }
 
   async initialize() {
-    const card = this.getCard();
     const { merchantId, terminalId, secretKey } = this.credentials;
+    const paymentModel = this.pos.paymentModel || '3d';
 
+    // Non-3D ödeme için direkt payment kullan
+    if (paymentModel === 'regular') {
+      return this.directPayment();
+    }
+
+    const card = this.getCard();
     const orderId = this.getOrderId();
     const amount = this.formatAmount(false); // No decimals (cents)
     const currency = this.getCurrencyCode();
     const callbackUrl = this.getCallbackUrl();
     const installment = this.transaction.installment > 1 ? this.transaction.installment.toString() : '';
 
+    // Determine security level based on payment model
+    const securityLevel = paymentModel === '3d_pay' ? '3D_PAY' : '3D';
+
     // Generate security hash (SHA512)
     const securityHash = this.generate3DHash(orderId, amount, currency, callbackUrl, callbackUrl, installment);
 
-    // Store form data
-    this.transaction.secure = this.transaction.secure || {};
-    this.transaction.secure.formData = {
-      cardnumber: card.number.replace(/\s/g, ''),
-      cardcvv2: card.cvv,
-      cardexpiredateyear: this.formatExpiryYear(card.expiry),
-      cardexpiredatemonth: this.formatExpiryMonth(card.expiry),
+    // Base form data
+    const formData = {
       txntype: 'sales',
-      secure3dsecuritylevel: '3D',
+      secure3dsecuritylevel: securityLevel,
       mode: this.getMode(),
       orderid: orderId,
       apiversion: this.apiVersion,
@@ -106,7 +110,6 @@ export default class GarantiProvider extends BaseProvider {
       terminalmerchantid: merchantId,
       customeripaddress: this.transaction.customer?.ip || '',
       customeremailaddress: this.transaction.customer?.email || '',
-      txntype: 'sales',
       txnamount: amount,
       txncurrencycode: currency,
       companyname: this.pos.companyName || '',
@@ -117,12 +120,22 @@ export default class GarantiProvider extends BaseProvider {
       txntimestamp: this.getTimestamp(),
       lang: this.transaction.language || 'tr',
       refreshtime: '0',
-      storetype: '3d',
-      type: '3d'
+      storetype: paymentModel === '3d_pay' ? '3d_pay' : '3d'
     };
 
+    // Kart bilgilerini ekle
+    formData.cardnumber = card.number.replace(/\s/g, '');
+    formData.cardcvv2 = card.cvv;
+    formData.cardexpiredateyear = this.formatExpiryYear(card.expiry);
+    formData.cardexpiredatemonth = this.formatExpiryMonth(card.expiry);
+
+    // Store form data
+    this.transaction.secure = this.transaction.secure || {};
+    this.transaction.secure.formData = formData;
+    this.transaction.secure.paymentModel = paymentModel;
+
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
-    await this.log('init', { orderId, amount, currency }, { status: 'prepared' });
+    await this.log('init', { orderId, amount, currency, paymentModel, securityLevel }, { status: 'prepared' });
 
     return { success: true };
   }
@@ -170,6 +183,13 @@ export default class GarantiProvider extends BaseProvider {
   async processCallback(postData) {
     await this.log('3d_callback', postData, {});
 
+    const paymentModel = this.transaction.secure?.paymentModel || '3d';
+
+    // 3D_PAY modunda banka tüm işlemi yapar, direkt sonuç döner
+    if (paymentModel === '3d_pay') {
+      return this.handle3DPayCallback(postData);
+    }
+
     // Check 3D status (only '1' is valid for Garanti)
     const mdStatus = postData.mdstatus;
     const validStatuses = ['1'];
@@ -195,6 +215,54 @@ export default class GarantiProvider extends BaseProvider {
 
     // Process provision (3D payment)
     return this.processProvision({ md, xid, eci, cavv });
+  }
+
+  /**
+   * Handle 3D Pay callback - banka tüm işlemi yaptı
+   */
+  async handle3DPayCallback(postData) {
+    // 3D doğrulama kontrolü
+    const mdStatus = postData.mdstatus;
+    if (mdStatus !== '1') {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: mdStatus,
+        message: postData.mderrormessage || '3D doğrulama başarısız'
+      };
+      await this.saveSecure();
+      return { success: false, message: this.transaction.result.message };
+    }
+
+    // 3D Pay'de işlem sonucu direkt gelir
+    const procreturncode = postData.procreturncode;
+    const authcode = postData.authcode;
+    const hostrefnum = postData.hostrefnum;
+    const errmsg = postData.errmsg;
+
+    if (procreturncode === '00') {
+      this.transaction.status = 'success';
+      this.transaction.result = {
+        success: true,
+        authCode: authcode,
+        refNumber: hostrefnum,
+        message: 'Ödeme başarılı'
+      };
+      this.transaction.completedAt = new Date();
+      await this.transaction.clearCvv();
+
+      return { success: true, message: 'Ödeme başarılı' };
+    } else {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: procreturncode,
+        message: errmsg || 'Ödeme reddedildi'
+      };
+      await this.saveSecure();
+
+      return { success: false, message: this.transaction.result.message };
+    }
   }
 
   /**
@@ -323,7 +391,9 @@ export default class GarantiProvider extends BaseProvider {
       status: true,
       history: false,
       preAuth: true,
-      postAuth: true
+      postAuth: true,
+      // Desteklenen ödeme modelleri
+      paymentModels: ['3d', '3d_pay', 'regular']
     };
   }
 

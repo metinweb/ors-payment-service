@@ -28,7 +28,8 @@ export default class YKBProvider extends BaseProvider {
       status: true,
       history: false,
       preAuth: true,
-      postAuth: true
+      postAuth: true,
+      paymentModels: ['3d', '3d_pay', 'regular']
     };
   }
 

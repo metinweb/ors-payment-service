@@ -2,6 +2,32 @@ import mongoose from 'mongoose';
 import { encrypt, decrypt } from '../config/encryption.js';
 
 // ============================================================================
+// PAYMENT MODEL DEFINITIONS
+// ============================================================================
+export const PAYMENT_MODELS = {
+  '3d': {
+    code: '3d',
+    name: '3D Secure',
+    description: 'Kart bilgileri sizde, 3D doğrulama bankada'
+  },
+  '3d_pay': {
+    code: '3d_pay',
+    name: '3D Pay',
+    description: 'Kart bilgileri ve 3D doğrulama bankada'
+  },
+  '3d_host': {
+    code: '3d_host',
+    name: '3D Host',
+    description: 'Tüm işlem bankada yapılır'
+  },
+  'regular': {
+    code: 'regular',
+    name: 'Non-Secure',
+    description: '3D olmadan direkt ödeme'
+  }
+};
+
+// ============================================================================
 // BANK DEFINITIONS
 // ============================================================================
 export const BANKS = {
@@ -10,91 +36,104 @@ export const BANKS = {
     name: 'Garanti BBVA',
     provider: 'garanti',
     color: '#00854a',
-    logo: 'garanti'
+    logo: 'garanti',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   akbank: {
     code: 'akbank',
     name: 'Akbank',
     provider: 'akbank',
     color: '#e31e24',
-    logo: 'akbank'
+    logo: 'akbank',
+    supportedPaymentModels: ['3d', 'regular']
   },
   ykb: {
     code: 'ykb',
     name: 'Yapı Kredi',
     provider: 'ykb',
     color: '#004b93',
-    logo: 'ykb'
+    logo: 'ykb',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   isbank: {
     code: 'isbank',
     name: 'İş Bankası',
     provider: 'payten',
     color: '#004990',
-    logo: 'isbank'
+    logo: 'isbank',
+    supportedPaymentModels: ['3d', '3d_pay', '3d_host', 'regular']
   },
   halkbank: {
     code: 'halkbank',
     name: 'Halkbank',
     provider: 'payten',
     color: '#00528e',
-    logo: 'halkbank'
+    logo: 'halkbank',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   ziraat: {
     code: 'ziraat',
     name: 'Ziraat Bankası',
     provider: 'payten',
     color: '#e30613',
-    logo: 'ziraat'
+    logo: 'ziraat',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   vakifbank: {
     code: 'vakifbank',
     name: 'VakıfBank',
     provider: 'vakifbank',
     color: '#fdc600',
-    logo: 'vakifbank'
+    logo: 'vakifbank',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   teb: {
     code: 'teb',
     name: 'TEB',
     provider: 'payten',
     color: '#00529b',
-    logo: 'teb'
+    logo: 'teb',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   qnb: {
     code: 'qnb',
     name: 'QNB Finansbank',
     provider: 'qnb',
     color: '#5c068c',
-    logo: 'qnb'
+    logo: 'qnb',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   denizbank: {
     code: 'denizbank',
     name: 'Denizbank',
     provider: 'denizbank',
     color: '#003b73',
-    logo: 'denizbank'
+    logo: 'denizbank',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   ingbank: {
     code: 'ingbank',
     name: 'ING Bank',
     provider: 'payten',
     color: '#ff6200',
-    logo: 'ingbank'
+    logo: 'ingbank',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   sekerbank: {
     code: 'sekerbank',
     name: 'Şekerbank',
     provider: 'payten',
     color: '#ed1c24',
-    logo: 'sekerbank'
+    logo: 'sekerbank',
+    supportedPaymentModels: ['3d', '3d_pay', 'regular']
   },
   kuveytturk: {
     code: 'kuveytturk',
     name: 'Kuveyt Türk',
     provider: 'kuveytturk',
     color: '#00a651',
-    logo: 'kuveytturk'
+    logo: 'kuveytturk',
+    supportedPaymentModels: ['3d', 'regular']
   },
   // ============================================================================
   // AGGREGATORS (Entegratörler) - Ayrı bölümde gösterilecek
@@ -105,7 +144,8 @@ export const BANKS = {
     provider: 'paytr',
     color: '#2c3e50',
     logo: 'paytr',
-    isAggregator: true
+    isAggregator: true,
+    supportedPaymentModels: ['3d']  // PayTR sadece 3D
   },
   iyzico: {
     code: 'iyzico',
@@ -113,7 +153,8 @@ export const BANKS = {
     provider: 'iyzico',
     color: '#1e64ff',
     logo: 'iyzico',
-    isAggregator: true
+    isAggregator: true,
+    supportedPaymentModels: ['3d', 'regular']
   },
   sigmapay: {
     code: 'sigmapay',
@@ -121,7 +162,8 @@ export const BANKS = {
     provider: 'sigmapay',
     color: '#6366f1',
     logo: 'sigmapay',
-    isAggregator: true
+    isAggregator: true,
+    supportedPaymentModels: ['regular']  // Crypto = non-3D
   }
 };
 
@@ -221,6 +263,12 @@ const virtualPosSchema = new mongoose.Schema({
     secretKey: String,       // şifreli (storeKey, encKey vs.)
     posnetId: String,        // YKB için
     extra: String            // Diğer provider-specific alanlar (JSON string, şifreli)
+  },
+  // Ödeme modeli (3D Secure modeli)
+  paymentModel: {
+    type: String,
+    enum: ['3d', '3d_pay', '3d_host', 'regular'],
+    default: '3d'
   },
   // 3D Secure ayarları
   threeDSecure: {

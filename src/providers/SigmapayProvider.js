@@ -144,14 +144,15 @@ export default class SigmapayProvider extends BaseProvider {
    */
   getCapabilities() {
     return {
-      payment3D: true,
-      paymentDirect: false,
+      payment3D: false,  // Crypto = no 3D
+      paymentDirect: true,
       refund: false,   // Crypto payments typically don't support refund
       cancel: false,   // Crypto payments typically don't support cancel
       status: false,
       history: false,
       preAuth: false,
-      postAuth: false
+      postAuth: false,
+      paymentModels: ['regular']  // Crypto sadece regular (non-3D)
     };
   }
 }

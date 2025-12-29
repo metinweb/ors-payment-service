@@ -204,7 +204,8 @@ export default class PayTRProvider extends BaseProvider {
       status: false,
       history: false,
       preAuth: false,
-      postAuth: false
+      postAuth: false,
+      paymentModels: ['3d']  // PayTR sadece 3D destekler
     };
   }
 

@@ -263,7 +263,8 @@ export default class BaseProvider {
       status: false,          // Status query
       history: false,         // Order history
       preAuth: false,         // Pre-authorization
-      postAuth: false         // Post-authorization
+      postAuth: false,        // Post-authorization
+      paymentModels: ['3d']   // Default sadece 3D
     };
   }
 
