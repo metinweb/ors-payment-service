@@ -103,6 +103,11 @@ export default class PaytenProvider extends BaseProvider {
       Hashalgorithm: 'ver3'
     };
 
+    // İşbank BOLUM alanı (Payten bankaları için bölüm/şube kodu)
+    if (this.credentials.section) {
+      formData.BOLUM = this.credentials.section;
+    }
+
     // 3D_HOST modunda kart bilgileri gönderilmez - banka alır
     if (paymentModel !== '3d_host') {
       const card = this.getCard();

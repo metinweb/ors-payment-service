@@ -262,6 +262,7 @@ const virtualPosSchema = new mongoose.Schema({
     password: String,        // şifreli
     secretKey: String,       // şifreli (storeKey, encKey vs.)
     posnetId: String,        // YKB için
+    section: String,         // İşbank BOLUM alanı (Payten bankaları için)
     extra: String            // Diğer provider-specific alanlar (JSON string, şifreli)
   },
   // 3D Secure modeli (her zaman aktif, sadece model seçilir)
@@ -374,6 +375,7 @@ virtualPosSchema.methods.getDecryptedCredentials = function () {
     password: decrypt(this.credentials.password),
     secretKey: decrypt(this.credentials.secretKey),
     posnetId: this.credentials.posnetId,
+    section: this.credentials.section,  // İşbank BOLUM
     extra: this.credentials.extra ? JSON.parse(decrypt(this.credentials.extra) || '{}') : {}
   };
 };
@@ -387,6 +389,7 @@ virtualPosSchema.methods.toJSON = function () {
       terminalId: obj.credentials.terminalId,
       username: obj.credentials.username,
       posnetId: obj.credentials.posnetId,
+      section: obj.credentials.section,  // İşbank BOLUM - not sensitive
       // Hide sensitive
       password: obj.credentials.password ? '••••••••' : null,
       secretKey: obj.credentials.secretKey ? '••••••••' : null,
