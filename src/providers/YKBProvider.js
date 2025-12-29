@@ -108,50 +108,46 @@ export default class YKBProvider extends BaseProvider {
    */
   tryDecrypt(encryptedData, storeKey, mode) {
     try {
-      // Key: MD5 hash of storeKey, uppercase, first 24 chars (24 bytes as UTF-8)
-      const md5Hash = crypto.createHash('md5').update(storeKey).digest('hex');
-      const keyString = md5Hash.toUpperCase().substring(0, 24);
-      const keyBuffer = Buffer.from(keyString, 'utf8');
+      // EXACTLY like old utils.js:
+      // var key = crypto.createHash('md5').update(key).digest('hex').toUpperCase().substr(0, 24)
+      const key = crypto.createHash('md5').update(storeKey).digest('hex').toUpperCase().substr(0, 24);
 
-      // IV: First 16 hex chars → 8 bytes binary
-      const ivHex = encryptedData.substring(0, 16);
-      const ivBuffer = Buffer.from(ivHex, 'hex');
+      // var iv = Buffer.from(data.substr(0, 16), 'hex')
+      const iv = Buffer.from(encryptedData.substr(0, 16), 'hex');
 
       // Extract data based on mode
+      // Old code: data.substr(16, data.length - 24) which is substr(start, length)
       let dataHex;
       switch (mode) {
         case 'full':
-          // All data after IV
-          dataHex = encryptedData.substring(16);
+          dataHex = encryptedData.substr(16);
           break;
         case 'minus8':
-          // Old format: skip last 8 hex chars (PHP: strlen - 24, but we already skipped 16)
-          dataHex = encryptedData.substring(16, encryptedData.length - 8);
+          // This matches: data.substr(16, data.length - 24) when length is 392
+          // substr(16, 368) = 368 chars starting at position 16
+          dataHex = encryptedData.substr(16, encryptedData.length - 24);
           break;
         case 'minus16':
-          // Skip last 16 hex chars
-          dataHex = encryptedData.substring(16, encryptedData.length - 16);
+          dataHex = encryptedData.substr(16, encryptedData.length - 32);
           break;
         default:
-          dataHex = encryptedData.substring(16);
+          dataHex = encryptedData.substr(16);
       }
 
-      const dataBuffer = Buffer.from(dataHex, 'hex');
-
-      console.log(`[${mode}] Data buffer length: ${dataBuffer.length}, mod 8: ${dataBuffer.length % 8}`);
+      const dataLength = Buffer.from(dataHex, 'hex').length;
+      console.log(`[${mode}] Data hex length: ${dataHex.length}, bytes: ${dataLength}, mod 8: ${dataLength % 8}`);
 
       // Check block alignment
-      if (dataBuffer.length % 8 !== 0) {
+      if (dataLength % 8 !== 0) {
         console.log(`[${mode}] Data not block-aligned, skipping`);
         return null;
       }
 
-      // Decrypt using Triple DES CBC
-      const decipher = crypto.createDecipheriv('des-ede3-cbc', keyBuffer, ivBuffer);
-      decipher.setAutoPadding(false);
-
-      let decrypted = decipher.update(dataBuffer, null, 'utf8');
-      decrypted += decipher.final('utf8');
+      // EXACTLY like old utils.js:
+      // var decipher = crypto.createDecipheriv('des-ede3-cbc', key, iv)
+      // var decrypted = decipher.update(data.substr(16, data.length - 24), 'hex', 'utf-8') + decipher.final('utf-8')
+      const decipher = crypto.createDecipheriv('des-ede3-cbc', key, iv);
+      let decrypted = decipher.update(dataHex, 'hex', 'utf-8') + decipher.final('utf-8');
 
       // Remove padding (null bytes and PKCS5/7 padding)
       decrypted = decrypted.replace(/[\x00-\x08]+$/, '');
@@ -399,35 +395,37 @@ export default class YKBProvider extends BaseProvider {
     const { merchantId, terminalId, secretKey, username, password } = this.credentials;
     const formData = this.transaction.secure?.formData;
 
-    // Calculate MAC
-    const xid = decrypted.xid || formData?.orderId;
+    // Calculate MAC - EXACTLY like old utils.js:
+    // var macData = utils.hashString(
+    //   decrypted.xid + ';' +
+    //   this.order.transaction.toAmount.value.toFixed(2).replace('.', '') + ';' +
+    //   currencyCodes[this.order.transaction.toAmount.currency] + ';' +
+    //   this.order.pos.auth.mid + ';' +
+    //   utils.hashString(this.order.pos.auth.storekey + ';' + this.order.pos.auth.tid)
+    // ).replace('+', '%2B')
+
+    const xid = decrypted.xid;
     const amount = formData?.amount;
     const currencyCode = formData?.currencyCode;
 
-    // Convert secretKey from comma-separated bytes (e.g., "124,74,123,119,124,45,82,37")
-    // to actual string (e.g., "|J{w|-R%") if needed
-    let storeKey = secretKey;
-    if (secretKey && secretKey.includes(',')) {
-      const bytes = secretKey.split(',').map(b => parseInt(b.trim(), 10));
-      storeKey = String.fromCharCode(...bytes);
-      console.log('Converted storeKey from comma-separated to bytes:', {
-        original: secretKey,
-        converted: storeKey,
-        originalLength: secretKey.length,
-        convertedLength: storeKey.length
-      });
-    }
+    // hashString(storekey + ';' + tid)
+    const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
 
-    const hashedStoreKey = this.hashString(storeKey + ';' + terminalId);
+    // hashString(xid + ';' + amount + ';' + currency + ';' + mid + ';' + hashedStoreKey)
     const macRaw = this.hashString(
       xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey
     );
-    // Old Node.js code uses .replace('+', '%2B') which only replaces FIRST occurrence
+
+    // .replace('+', '%2B') - only replaces FIRST occurrence (not regex)
     const macData = macRaw.replace('+', '%2B');
 
-    console.log('MAC calculation:', {
-      xid, amount, currencyCode, merchantId,
-      storeKey,
+    console.log('MAC calculation (old format):', {
+      xid,
+      amount,
+      currencyCode,
+      merchantId,
+      secretKey,
+      terminalId,
       hashedStoreKey,
       macRaw,
       macData
