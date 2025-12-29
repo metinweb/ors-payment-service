@@ -17,6 +17,22 @@ export default class YKBProvider extends BaseProvider {
   }
 
   /**
+   * Provider capabilities
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,
+      paymentDirect: true,
+      refund: true,
+      cancel: true,
+      status: true,
+      history: false,
+      preAuth: true,
+      postAuth: true
+    };
+  }
+
+  /**
    * Get YKB-specific currency code
    */
   getCurrencyCode() {
@@ -447,6 +463,355 @@ export default class YKBProvider extends BaseProvider {
       await this.saveSecure();  // Use helper for Mixed type
 
       return { success: false, message: 'Baglanti hatasi' };
+    }
+  }
+
+  /**
+   * Refund a completed payment
+   */
+  async refund(originalTransaction) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = originalTransaction.orderId || originalTransaction.secure?.formData?.orderId || originalTransaction._id.toString().padStart(20, '0').slice(0, 20);
+    const amount = this.formatAmountYKB();
+    const currencyCode = this.getCurrencyCode();
+    const hostLogKey = originalTransaction.result?.refNumber || '';
+
+    const request = {
+      posnetRequest: {
+        mid: merchantId,
+        tid: terminalId,
+        return: {
+          amount: amount,
+          currencyCode: currencyCode,
+          orderID: orderId,
+          hostlogkey: hostLogKey
+        }
+      }
+    };
+
+    try {
+      const xml = this.buildXml(request);
+      await this.log('refund', request, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('refund', request, result);
+
+      if (result.approved === '1' || result.approved === 1) {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.authCode,
+          refNumber: result.hostlogkey,
+          message: 'İade başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        originalTransaction.refundedAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İade başarılı',
+          authCode: result.authCode,
+          refNumber: result.hostlogkey
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.respCode,
+          message: result.respText || 'İade reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.respCode, result.respText || 'İade reddedildi', result);
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Cancel a payment (reverse)
+   */
+  async cancel(originalTransaction) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const hostLogKey = originalTransaction.result?.refNumber || '';
+    const authCode = originalTransaction.result?.authCode || '';
+
+    const request = {
+      posnetRequest: {
+        mid: merchantId,
+        tid: terminalId,
+        reverse: {
+          hostlogkey: hostLogKey,
+          authCode: authCode,
+          transaction: 'sale'
+        }
+      }
+    };
+
+    try {
+      const xml = this.buildXml(request);
+      await this.log('cancel', request, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('cancel', request, result);
+
+      if (result.approved === '1' || result.approved === 1) {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.authCode,
+          refNumber: result.hostlogkey,
+          message: 'İptal başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        originalTransaction.cancelledAt = new Date();
+        originalTransaction.status = 'cancelled';
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İptal başarılı',
+          authCode: result.authCode,
+          refNumber: result.hostlogkey
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.respCode,
+          message: result.respText || 'İptal reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.respCode, result.respText || 'İptal reddedildi', result);
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Query payment status
+   */
+  async status(orderId) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const request = {
+      posnetRequest: {
+        mid: merchantId,
+        tid: terminalId,
+        agreement: {
+          orderID: orderId
+        }
+      }
+    };
+
+    try {
+      const xml = this.buildXml(request);
+      await this.log('status', request, { status: 'querying' });
+
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('status', request, result);
+
+      if (result.approved === '1' || result.approved === 1) {
+        return {
+          success: true,
+          orderId,
+          status: result.approved ? 'approved' : 'unknown',
+          authCode: result.authCode,
+          refNumber: result.hostlogkey,
+          rawResponse: result
+        };
+      } else {
+        return this.errorResponse(result.respCode, result.respText || 'Sorgu başarısız', result);
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Pre-authorization
+   */
+  async preAuth() {
+    const card = this.getCard();
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = this.getOrderId();
+    const amount = this.formatAmountYKB();
+    const currencyCode = this.getCurrencyCode();
+    const installment = this.formatInstallment();
+
+    const request = {
+      posnetRequest: {
+        mid: merchantId,
+        tid: terminalId,
+        auth: {
+          amount: amount,
+          ccno: card.number.replace(/\s/g, ''),
+          currencyCode: currencyCode,
+          cvc: card.cvv,
+          expDate: this.formatExpiry(card.expiry),
+          orderID: orderId,
+          installment: installment
+        }
+      }
+    };
+
+    try {
+      this.transaction.orderId = orderId;
+      const xml = this.buildXml(request);
+      await this.log('pre_auth', request, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('pre_auth', request, result);
+
+      if (result.approved === '1' || result.approved === 1) {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.authCode,
+          refNumber: result.hostlogkey,
+          message: 'Ön provizyon başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.clearCvv();
+
+        return this.successResponse({
+          message: 'Ön provizyon başarılı',
+          authCode: result.authCode,
+          refNumber: result.hostlogkey
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.respCode,
+          message: result.respText || 'Ön provizyon reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.respCode, result.respText || 'Ön provizyon reddedildi', result);
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
+    }
+  }
+
+  /**
+   * Post-authorization (capture pre-auth)
+   */
+  async postAuth(preAuthTransaction) {
+    const { merchantId, terminalId } = this.credentials;
+
+    const orderId = preAuthTransaction.orderId || preAuthTransaction._id.toString().padStart(20, '0').slice(0, 20);
+    const amount = this.formatAmountYKB();
+    const currencyCode = this.getCurrencyCode();
+    const hostLogKey = preAuthTransaction.result?.refNumber || '';
+
+    const request = {
+      posnetRequest: {
+        mid: merchantId,
+        tid: terminalId,
+        capt: {
+          amount: amount,
+          currencyCode: currencyCode,
+          hostlogkey: hostLogKey,
+          orderID: orderId,
+          installment: '00'
+        }
+      }
+    };
+
+    try {
+      const xml = this.buildXml(request);
+      await this.log('post_auth', request, { status: 'sending' });
+
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
+      const result = await this.parseXml(response.data);
+
+      await this.log('post_auth', request, result);
+
+      if (result.approved === '1' || result.approved === 1) {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          authCode: result.authCode,
+          refNumber: result.hostlogkey,
+          message: 'Provizyon kapama başarılı'
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        return this.successResponse({
+          message: 'Provizyon kapama başarılı',
+          authCode: result.authCode,
+          refNumber: result.hostlogkey
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.respCode,
+          message: result.respText || 'Provizyon kapama reddedildi'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.respCode, result.respText || 'Provizyon kapama reddedildi', result);
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', 'Bağlantı hatası');
     }
   }
 }
