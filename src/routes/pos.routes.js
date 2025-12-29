@@ -88,7 +88,10 @@ router.post('/', async (req, res) => {
       urls,
       limits,
       supportedCards,
-      priority
+      priority,
+      paymentModel,
+      allowDirectPayment,
+      supportedCardFamilies
     } = req.body;
 
     if (!company) {
@@ -175,7 +178,10 @@ router.post('/', async (req, res) => {
       urls: urls || {},
       limits: limits || {},
       supportedCards: supportedCards || {},
-      priority: priority || 0
+      priority: priority || 0,
+      paymentModel: paymentModel || '3d',
+      allowDirectPayment: allowDirectPayment || false,
+      supportedCardFamilies: supportedCardFamilies || []
     });
 
     // Return with bank info
@@ -248,13 +254,21 @@ router.put('/:id', async (req, res) => {
       urls,
       limits,
       supportedCards,
-      priority
+      priority,
+      paymentModel,
+      allowDirectPayment,
+      supportedCardFamilies
     } = req.body;
 
     if (name) pos.name = name;
     if (typeof status === 'boolean') pos.status = status;
     if (typeof testMode === 'boolean') pos.testMode = testMode;
     if (typeof priority === 'number') pos.priority = priority;
+    if (paymentModel) pos.paymentModel = paymentModel;
+    if (typeof allowDirectPayment === 'boolean') pos.allowDirectPayment = allowDirectPayment;
+    if (supportedCardFamilies && Array.isArray(supportedCardFamilies)) {
+      pos.supportedCardFamilies = supportedCardFamilies;
+    }
 
     if (currencies && Array.isArray(currencies) && currencies.length > 0) {
       pos.currencies = currencies;
