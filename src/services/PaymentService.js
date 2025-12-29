@@ -292,10 +292,353 @@ export async function getTransactionStatus(transactionId) {
   };
 }
 
+/**
+ * Refund a completed payment
+ */
+export async function refundPayment(transactionId) {
+  const originalTransaction = await Transaction.findById(transactionId).populate('pos');
+
+  if (!originalTransaction) {
+    throw new Error('İşlem bulunamadı');
+  }
+
+  if (!originalTransaction.canRefund()) {
+    throw new Error('Bu işlem iade edilemez');
+  }
+
+  const pos = originalTransaction.pos;
+  if (!pos || !pos.status) {
+    throw new Error('POS bulunamadı veya aktif değil');
+  }
+
+  // Create refund transaction
+  const refundTransaction = new Transaction({
+    pos: pos._id,
+    type: 'refund',
+    parentTransaction: originalTransaction._id,
+    amount: originalTransaction.amount,
+    currency: originalTransaction.currency,
+    orderId: originalTransaction.orderId,
+    card: {
+      masked: originalTransaction.card?.masked,
+      bin: originalTransaction.card?.bin
+    },
+    customer: originalTransaction.customer,
+    status: 'processing'
+  });
+
+  await refundTransaction.save();
+
+  try {
+    const provider = getProvider(refundTransaction, pos);
+
+    if (!provider.supports('refund')) {
+      throw new Error(`${pos.provider} iade işlemini desteklemiyor`);
+    }
+
+    const result = await provider.refund(originalTransaction);
+
+    return {
+      success: result.success,
+      transactionId: refundTransaction._id,
+      message: result.message,
+      refNumber: result.refNumber
+    };
+  } catch (error) {
+    refundTransaction.status = 'failed';
+    refundTransaction.result = {
+      success: false,
+      code: 'ERROR',
+      message: error.message
+    };
+    await refundTransaction.save();
+    throw error;
+  }
+}
+
+/**
+ * Cancel a payment (same day only)
+ */
+export async function cancelPayment(transactionId) {
+  const originalTransaction = await Transaction.findById(transactionId).populate('pos');
+
+  if (!originalTransaction) {
+    throw new Error('İşlem bulunamadı');
+  }
+
+  if (!originalTransaction.canCancel()) {
+    throw new Error('Bu işlem iptal edilemez (gün sonu geçmiş olabilir)');
+  }
+
+  const pos = originalTransaction.pos;
+  if (!pos || !pos.status) {
+    throw new Error('POS bulunamadı veya aktif değil');
+  }
+
+  // Create cancel transaction
+  const cancelTransaction = new Transaction({
+    pos: pos._id,
+    type: 'cancel',
+    parentTransaction: originalTransaction._id,
+    amount: originalTransaction.amount,
+    currency: originalTransaction.currency,
+    orderId: originalTransaction.orderId,
+    card: {
+      masked: originalTransaction.card?.masked,
+      bin: originalTransaction.card?.bin
+    },
+    customer: originalTransaction.customer,
+    status: 'processing'
+  });
+
+  await cancelTransaction.save();
+
+  try {
+    const provider = getProvider(cancelTransaction, pos);
+
+    if (!provider.supports('cancel')) {
+      throw new Error(`${pos.provider} iptal işlemini desteklemiyor`);
+    }
+
+    const result = await provider.cancel(originalTransaction);
+
+    return {
+      success: result.success,
+      transactionId: cancelTransaction._id,
+      message: result.message
+    };
+  } catch (error) {
+    cancelTransaction.status = 'failed';
+    cancelTransaction.result = {
+      success: false,
+      code: 'ERROR',
+      message: error.message
+    };
+    await cancelTransaction.save();
+    throw error;
+  }
+}
+
+/**
+ * Query bank for transaction status
+ */
+export async function queryBankStatus(transactionId) {
+  const transaction = await Transaction.findById(transactionId).populate('pos');
+
+  if (!transaction) {
+    throw new Error('İşlem bulunamadı');
+  }
+
+  if (!transaction.orderId) {
+    throw new Error('İşlemin banka sipariş numarası bulunamadı');
+  }
+
+  const pos = transaction.pos;
+  if (!pos || !pos.status) {
+    throw new Error('POS bulunamadı veya aktif değil');
+  }
+
+  const provider = getProvider(transaction, pos);
+
+  if (!provider.supports('status')) {
+    throw new Error(`${pos.provider} durum sorgulama işlemini desteklemiyor`);
+  }
+
+  return provider.status(transaction.orderId);
+}
+
+/**
+ * Create pre-authorization (block amount without capture)
+ */
+export async function createPreAuth(data) {
+  const { posId, amount, currency, installment, card, customer, externalId } = data;
+
+  const pos = await VirtualPos.findById(posId).populate('company');
+
+  if (!pos || !pos.status) {
+    throw new Error('Sanal pos bulunamadı veya aktif değil');
+  }
+
+  if (!isProviderSupported(pos.provider)) {
+    throw new Error(`Provider henüz desteklenmiyor: ${pos.provider}`);
+  }
+
+  // Get BIN info
+  const bin = parseInt(card.number.replace(/\s/g, '').slice(0, 8), 10);
+  const binInfo = await getBinInfo(bin);
+
+  // Create transaction
+  const transaction = new Transaction({
+    pos: pos._id,
+    type: 'pre_auth',
+    paymentModel: 'regular',
+    amount,
+    currency,
+    installment: installment || 1,
+    card: {
+      holder: card.holder,
+      number: card.number,
+      expiry: card.expiry,
+      cvv: card.cvv,
+      bin: bin
+    },
+    bin: binInfo ? {
+      bank: binInfo.bank || '',
+      brand: binInfo.brand || '',
+      type: binInfo.type || '',
+      family: binInfo.family || '',
+      country: binInfo.country || ''
+    } : {},
+    customer: customer || {},
+    status: 'processing',
+    externalId
+  });
+
+  await transaction.save();
+
+  try {
+    const provider = getProvider(transaction, pos);
+
+    if (!provider.supports('preAuth')) {
+      throw new Error(`${pos.provider} ön provizyon işlemini desteklemiyor`);
+    }
+
+    const result = await provider.preAuth();
+
+    return {
+      success: result.success,
+      transactionId: transaction._id,
+      message: result.message,
+      authCode: result.authCode,
+      refNumber: result.refNumber
+    };
+  } catch (error) {
+    transaction.status = 'failed';
+    transaction.result = {
+      success: false,
+      code: 'ERROR',
+      message: error.message
+    };
+    await transaction.save();
+    throw error;
+  }
+}
+
+/**
+ * Capture pre-authorized amount
+ */
+export async function createPostAuth(preAuthTransactionId) {
+  const preAuthTransaction = await Transaction.findById(preAuthTransactionId).populate('pos');
+
+  if (!preAuthTransaction) {
+    throw new Error('Ön provizyon işlemi bulunamadı');
+  }
+
+  if (!preAuthTransaction.canPostAuth()) {
+    throw new Error('Bu işlem için provizyon kapama yapılamaz');
+  }
+
+  const pos = preAuthTransaction.pos;
+  if (!pos || !pos.status) {
+    throw new Error('POS bulunamadı veya aktif değil');
+  }
+
+  // Create post-auth transaction
+  const postAuthTransaction = new Transaction({
+    pos: pos._id,
+    type: 'post_auth',
+    parentTransaction: preAuthTransaction._id,
+    amount: preAuthTransaction.amount,
+    currency: preAuthTransaction.currency,
+    orderId: preAuthTransaction.orderId,
+    card: {
+      masked: preAuthTransaction.card?.masked,
+      bin: preAuthTransaction.card?.bin
+    },
+    customer: preAuthTransaction.customer,
+    status: 'processing'
+  });
+
+  await postAuthTransaction.save();
+
+  try {
+    const provider = getProvider(postAuthTransaction, pos);
+
+    if (!provider.supports('postAuth')) {
+      throw new Error(`${pos.provider} provizyon kapama işlemini desteklemiyor`);
+    }
+
+    const result = await provider.postAuth(preAuthTransaction);
+
+    return {
+      success: result.success,
+      transactionId: postAuthTransaction._id,
+      message: result.message,
+      authCode: result.authCode
+    };
+  } catch (error) {
+    postAuthTransaction.status = 'failed';
+    postAuthTransaction.result = {
+      success: false,
+      code: 'ERROR',
+      message: error.message
+    };
+    await postAuthTransaction.save();
+    throw error;
+  }
+}
+
+/**
+ * Get POS capabilities
+ */
+export async function getPosCapabilities(posId) {
+  const pos = await VirtualPos.findById(posId);
+
+  if (!pos) {
+    throw new Error('POS bulunamadı');
+  }
+
+  // Create a dummy transaction to get provider
+  const dummyTransaction = {
+    currency: 'try',
+    getDecryptedCard: () => ({})
+  };
+
+  try {
+    const provider = getProvider(dummyTransaction, pos);
+    return {
+      posId: pos._id,
+      provider: pos.provider,
+      capabilities: provider.getCapabilities()
+    };
+  } catch (error) {
+    return {
+      posId: pos._id,
+      provider: pos.provider,
+      capabilities: {
+        payment3D: true,
+        paymentDirect: false,
+        refund: false,
+        cancel: false,
+        status: false,
+        history: false,
+        preAuth: false,
+        postAuth: false
+      }
+    };
+  }
+}
+
 export default {
   queryBin,
   createPayment,
   getPaymentForm,
   processCallback,
-  getTransactionStatus
+  getTransactionStatus,
+  refundPayment,
+  cancelPayment,
+  queryBankStatus,
+  createPreAuth,
+  createPostAuth,
+  getPosCapabilities
 };

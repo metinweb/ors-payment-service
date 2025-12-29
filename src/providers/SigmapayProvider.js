@@ -137,4 +137,21 @@ export default class SigmapayProvider extends BaseProvider {
       message: 'Sigmapay sadece 3D Secure ile calismaktadir'
     };
   }
+
+  /**
+   * Get provider capabilities
+   * Sigmapay is a crypto payment gateway with limited refund support
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,
+      paymentDirect: false,
+      refund: false,   // Crypto payments typically don't support refund
+      cancel: false,   // Crypto payments typically don't support cancel
+      status: false,
+      history: false,
+      preAuth: false,
+      postAuth: false
+    };
+  }
 }

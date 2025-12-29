@@ -410,4 +410,432 @@ export default class AkbankProvider extends BaseProvider {
       return { success: false, message: 'Baglanti hatasi' };
     }
   }
+
+  /**
+   * Get provider capabilities
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,
+      paymentDirect: true,
+      refund: true,
+      cancel: true,
+      status: true,
+      history: false,
+      preAuth: true,
+      postAuth: true
+    };
+  }
+
+  /**
+   * Refund a completed payment
+   */
+  async refund(originalTransaction) {
+    const merchantSafeId = this.credentials.merchantId;
+    const terminalSafeId = this.credentials.terminalId;
+
+    const requestData = {
+      version: '1.00',
+      txnCode: '1003',  // Credit/Refund
+      requestDateTime: this.getRequestDateTime(),
+      randomNumber: this.generateRandomNumber(),
+      terminal: {
+        merchantSafeId: merchantSafeId,
+        terminalSafeId: terminalSafeId
+      },
+      order: {
+        orderId: originalTransaction.orderId
+      },
+      transaction: {
+        amount: originalTransaction.amount,
+        currencyCode: this.getCurrencyCode()
+      }
+    };
+
+    try {
+      const jsonString = JSON.stringify(requestData);
+      const hash = this.calculateHash(jsonString);
+
+      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
+
+      const response = await axios.post(this.urls.api, jsonString, {
+        headers: {
+          'auth-hash': hash,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        httpsAgent: this.httpsAgent
+      });
+
+      const result = response.data;
+      await this.log('refund', requestData, result);
+
+      if (result.hostResponseCode === '00') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'İade başarılı',
+          refNumber: result.transaction?.rrn || result.hostLogKey,
+          transactionId: result.txnId
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Update original transaction
+        originalTransaction.status = 'refunded';
+        originalTransaction.refundedAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İade başarılı',
+          refNumber: result.transaction?.rrn
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.responseCode,
+          message: result.responseMessage || 'İade başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.responseCode, result.responseMessage || 'İade başarısız');
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
+
+  /**
+   * Cancel a payment (same day only)
+   */
+  async cancel(originalTransaction) {
+    const merchantSafeId = this.credentials.merchantId;
+    const terminalSafeId = this.credentials.terminalId;
+
+    const requestData = {
+      version: '1.00',
+      txnCode: '1004',  // Void/Cancel
+      requestDateTime: this.getRequestDateTime(),
+      randomNumber: this.generateRandomNumber(),
+      terminal: {
+        merchantSafeId: merchantSafeId,
+        terminalSafeId: terminalSafeId
+      },
+      order: {
+        orderId: originalTransaction.orderId
+      },
+      transaction: {
+        amount: originalTransaction.amount,
+        currencyCode: this.getCurrencyCode()
+      }
+    };
+
+    try {
+      const jsonString = JSON.stringify(requestData);
+      const hash = this.calculateHash(jsonString);
+
+      await this.log('cancel', { orderId: originalTransaction.orderId }, { status: 'sending' });
+
+      const response = await axios.post(this.urls.api, jsonString, {
+        headers: {
+          'auth-hash': hash,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        httpsAgent: this.httpsAgent
+      });
+
+      const result = response.data;
+      await this.log('cancel', requestData, result);
+
+      if (result.hostResponseCode === '00') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'İptal başarılı',
+          refNumber: result.transaction?.rrn || result.hostLogKey
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Update original transaction
+        originalTransaction.status = 'cancelled';
+        originalTransaction.cancelledAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({ message: 'İptal başarılı' });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.responseCode,
+          message: result.responseMessage || 'İptal başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.responseCode, result.responseMessage || 'İptal başarısız');
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
+
+  /**
+   * Query payment status
+   */
+  async status(orderId) {
+    const merchantSafeId = this.credentials.merchantId;
+    const terminalSafeId = this.credentials.terminalId;
+
+    const requestData = {
+      version: '1.00',
+      txnCode: '1010',  // OrderInquiry
+      requestDateTime: this.getRequestDateTime(),
+      randomNumber: this.generateRandomNumber(),
+      terminal: {
+        merchantSafeId: merchantSafeId,
+        terminalSafeId: terminalSafeId
+      },
+      order: {
+        orderId: orderId
+      }
+    };
+
+    try {
+      const jsonString = JSON.stringify(requestData);
+      const hash = this.calculateHash(jsonString);
+
+      await this.log('status', { orderId }, { status: 'querying' });
+
+      const response = await axios.post(this.urls.api, jsonString, {
+        headers: {
+          'auth-hash': hash,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        httpsAgent: this.httpsAgent
+      });
+
+      const result = response.data;
+      await this.log('status', { orderId }, result);
+
+      return {
+        success: true,
+        status: result.txnStatus,
+        orderId: orderId,
+        amount: result.transaction?.amount,
+        authCode: result.transaction?.authCode,
+        refNumber: result.transaction?.rrn,
+        rawResponse: result
+      };
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
+
+  /**
+   * Pre-authorization (block amount without capture)
+   */
+  async preAuth() {
+    const card = this.getCard();
+    const merchantSafeId = this.credentials.merchantId;
+    const terminalSafeId = this.credentials.terminalId;
+
+    const orderId = this.getOrderId();
+    const amount = this.formatAmount();
+
+    // Save orderId to transaction
+    this.transaction.orderId = orderId;
+    await this.transaction.save();
+
+    const requestData = {
+      version: '1.00',
+      txnCode: '1005',  // PreAuth
+      requestDateTime: this.getRequestDateTime(),
+      randomNumber: this.generateRandomNumber(),
+      terminal: {
+        merchantSafeId: merchantSafeId,
+        terminalSafeId: terminalSafeId
+      },
+      card: {
+        cardNumber: card.number.replace(/\s/g, ''),
+        cvv2: card.cvv,
+        expireDate: this.formatExpiry(card.expiry)
+      },
+      order: {
+        orderId: orderId
+      },
+      transaction: {
+        amount: parseFloat(amount),
+        currencyCode: this.getCurrencyCode(),
+        motoInd: 0,
+        installCount: this.transaction.installment || 1
+      },
+      customer: {
+        emailAddress: this.transaction.customer?.email || '',
+        ipAddress: this.transaction.customer?.ip || ''
+      }
+    };
+
+    try {
+      const jsonString = JSON.stringify(requestData);
+      const hash = this.calculateHash(jsonString);
+
+      await this.log('pre_auth', { orderId, amount }, { status: 'sending' });
+
+      const response = await axios.post(this.urls.api, jsonString, {
+        headers: {
+          'auth-hash': hash,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        httpsAgent: this.httpsAgent
+      });
+
+      const result = response.data;
+      await this.log('pre_auth', { orderId }, result);
+
+      if (result.hostResponseCode === '00') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'Ön provizyon başarılı',
+          authCode: result.transaction?.authCode,
+          refNumber: result.transaction?.rrn || result.hostLogKey
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.clearCvv();
+
+        return this.successResponse({
+          message: 'Ön provizyon başarılı',
+          authCode: result.transaction?.authCode,
+          refNumber: result.transaction?.rrn
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.responseCode,
+          message: result.responseMessage || 'Ön provizyon başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.responseCode, result.responseMessage || 'Ön provizyon başarısız');
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
+
+  /**
+   * Post-authorization (capture pre-authorized amount)
+   */
+  async postAuth(preAuthTransaction) {
+    const merchantSafeId = this.credentials.merchantId;
+    const terminalSafeId = this.credentials.terminalId;
+
+    const requestData = {
+      version: '1.00',
+      txnCode: '1006',  // PostAuth
+      requestDateTime: this.getRequestDateTime(),
+      randomNumber: this.generateRandomNumber(),
+      terminal: {
+        merchantSafeId: merchantSafeId,
+        terminalSafeId: terminalSafeId
+      },
+      order: {
+        orderId: preAuthTransaction.orderId
+      },
+      transaction: {
+        amount: preAuthTransaction.amount,
+        currencyCode: this.getCurrencyCode()
+      }
+    };
+
+    try {
+      const jsonString = JSON.stringify(requestData);
+      const hash = this.calculateHash(jsonString);
+
+      await this.log('post_auth', { orderId: preAuthTransaction.orderId }, { status: 'sending' });
+
+      const response = await axios.post(this.urls.api, jsonString, {
+        headers: {
+          'auth-hash': hash,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        httpsAgent: this.httpsAgent
+      });
+
+      const result = response.data;
+      await this.log('post_auth', { orderId: preAuthTransaction.orderId }, result);
+
+      if (result.hostResponseCode === '00') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'Provizyon kapama başarılı',
+          authCode: result.transaction?.authCode,
+          refNumber: result.transaction?.rrn || result.hostLogKey
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        return this.successResponse({
+          message: 'Provizyon kapama başarılı',
+          authCode: result.transaction?.authCode
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.responseCode,
+          message: result.responseMessage || 'Provizyon kapama başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.responseCode, result.responseMessage || 'Provizyon kapama başarısız');
+      }
+    } catch (error) {
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.log('error', {}, { error: error.message });
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
 }

@@ -419,4 +419,146 @@ export default class IyzicoProvider extends BaseProvider {
       return { success: false, message: 'Baglanti hatasi' };
     }
   }
+
+  /**
+   * Get provider capabilities
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,
+      paymentDirect: true,
+      refund: true,
+      cancel: true,
+      status: false,  // iyzico doesn't have a simple status query
+      history: false,
+      preAuth: false,  // iyzico supports but different flow
+      postAuth: false
+    };
+  }
+
+  /**
+   * Refund a completed payment via iyzico API
+   */
+  async refund(originalTransaction) {
+    const price = this.formatPrice(originalTransaction.amount);
+    const ip = this.transaction.customer?.ip || '127.0.0.1';
+
+    const refundRequest = {
+      locale: 'tr',
+      conversationId: this.getOrderId(),
+      paymentTransactionId: originalTransaction.result?.transactionId || originalTransaction.orderId,
+      price: price,
+      currency: this.getCurrencyCodeIyzico(),
+      ip: ip
+    };
+
+    try {
+      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
+
+      const response = await this.sendRequest('/payment/refund', refundRequest);
+      await this.log('refund', { orderId: originalTransaction.orderId }, response);
+
+      if (response.status === 'success') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'İade başarılı',
+          refNumber: response.hostReference || response.paymentId
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Update original transaction
+        originalTransaction.status = 'refunded';
+        originalTransaction.refundedAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İade başarılı',
+          refNumber: response.hostReference
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: response.errorCode,
+          message: response.errorMessage || 'İade başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(response.errorCode, response.errorMessage || 'İade başarısız');
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
+
+  /**
+   * Cancel a payment (same day only) via iyzico API
+   */
+  async cancel(originalTransaction) {
+    const ip = this.transaction.customer?.ip || '127.0.0.1';
+
+    const cancelRequest = {
+      locale: 'tr',
+      conversationId: this.getOrderId(),
+      paymentId: originalTransaction.result?.transactionId || originalTransaction.orderId,
+      ip: ip
+    };
+
+    try {
+      await this.log('cancel', { orderId: originalTransaction.orderId }, { status: 'sending' });
+
+      const response = await this.sendRequest('/payment/cancel', cancelRequest);
+      await this.log('cancel', { orderId: originalTransaction.orderId }, response);
+
+      if (response.status === 'success') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'İptal başarılı',
+          refNumber: response.hostReference
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Update original transaction
+        originalTransaction.status = 'cancelled';
+        originalTransaction.cancelledAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({ message: 'İptal başarılı' });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: response.errorCode,
+          message: response.errorMessage || 'İptal başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(response.errorCode, response.errorMessage || 'İptal başarısız');
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
 }

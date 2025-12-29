@@ -151,6 +151,141 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+/**
+ * POST /refund
+ * Refund a completed payment
+ */
+router.post('/refund', async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        status: false,
+        error: 'transactionId gerekli'
+      });
+    }
+
+    const result = await PaymentService.refundPayment(transactionId);
+    res.json({ status: true, ...result });
+  } catch (error) {
+    res.status(400).json({ status: false, error: error.message });
+  }
+});
+
+/**
+ * POST /cancel
+ * Cancel a payment (same day only)
+ */
+router.post('/cancel', async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        status: false,
+        error: 'transactionId gerekli'
+      });
+    }
+
+    const result = await PaymentService.cancelPayment(transactionId);
+    res.json({ status: true, ...result });
+  } catch (error) {
+    res.status(400).json({ status: false, error: error.message });
+  }
+});
+
+/**
+ * GET /status/:id
+ * Query bank for transaction status
+ */
+router.get('/status/:id', async (req, res) => {
+  try {
+    const result = await PaymentService.queryBankStatus(req.params.id);
+    res.json({ status: true, ...result });
+  } catch (error) {
+    res.status(400).json({ status: false, error: error.message });
+  }
+});
+
+/**
+ * POST /pre-auth
+ * Create pre-authorization (block amount without capture)
+ */
+router.post('/pre-auth', async (req, res) => {
+  try {
+    const { posId, amount, currency, installment, card, customer, externalId } = req.body;
+
+    if (!posId || !amount || !currency || !card) {
+      return res.status(400).json({
+        status: false,
+        error: 'posId, amount, currency ve card gerekli'
+      });
+    }
+
+    if (!card.holder || !card.number || !card.expiry || !card.cvv) {
+      return res.status(400).json({
+        status: false,
+        error: 'Kart bilgileri eksik (holder, number, expiry, cvv)'
+      });
+    }
+
+    const result = await PaymentService.createPreAuth({
+      posId,
+      amount: parseFloat(amount),
+      currency: currency.toLowerCase(),
+      installment: parseInt(installment) || 1,
+      card: {
+        holder: card.holder,
+        number: card.number.replace(/\s/g, ''),
+        expiry: card.expiry,
+        cvv: card.cvv
+      },
+      customer: customer || {},
+      externalId
+    });
+
+    res.json({ status: true, ...result });
+  } catch (error) {
+    res.status(400).json({ status: false, error: error.message });
+  }
+});
+
+/**
+ * POST /post-auth
+ * Capture pre-authorized amount
+ */
+router.post('/post-auth', async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        status: false,
+        error: 'transactionId gerekli'
+      });
+    }
+
+    const result = await PaymentService.createPostAuth(transactionId);
+    res.json({ status: true, ...result });
+  } catch (error) {
+    res.status(400).json({ status: false, error: error.message });
+  }
+});
+
+/**
+ * GET /capabilities/:posId
+ * Get POS capabilities
+ */
+router.get('/capabilities/:posId', async (req, res) => {
+  try {
+    const result = await PaymentService.getPosCapabilities(req.params.posId);
+    res.json({ status: true, ...result });
+  } catch (error) {
+    res.status(400).json({ status: false, error: error.message });
+  }
+});
+
 export default router;
 
 // ============================================================================

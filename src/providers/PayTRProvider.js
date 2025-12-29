@@ -191,4 +191,111 @@ export default class PayTRProvider extends BaseProvider {
       message: 'PayTR sadece 3D Secure ile calismaktadir'
     };
   }
+
+  /**
+   * Get provider capabilities
+   */
+  getCapabilities() {
+    return {
+      payment3D: true,
+      paymentDirect: false,
+      refund: true,
+      cancel: false,  // PayTR doesn't support cancel, only refund
+      status: false,
+      history: false,
+      preAuth: false,
+      postAuth: false
+    };
+  }
+
+  /**
+   * Refund a completed payment via PayTR API
+   */
+  async refund(originalTransaction) {
+    const { merchantId, merchantSalt, merchantKey } = this.credentials;
+
+    // PayTR refund hash: merchant_id + merchant_oid + return_amount + merchant_salt
+    const returnAmount = Math.round(originalTransaction.amount * 100); // Kuruş cinsinden
+    const hashStr = merchantId + originalTransaction.orderId + returnAmount + merchantSalt;
+    const paytrToken = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
+
+    const refundData = {
+      merchant_id: merchantId,
+      merchant_oid: originalTransaction.orderId,
+      return_amount: returnAmount,
+      paytr_token: paytrToken,
+      reference_no: '' // Opsiyonel
+    };
+
+    try {
+      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
+
+      const response = await axios.post(
+        'https://www.paytr.com/odeme/iade',
+        this.encodeForm(refundData),
+        {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          httpsAgent: this.httpsAgent
+        }
+      );
+
+      const result = response.data;
+      await this.log('refund', { orderId: originalTransaction.orderId }, result);
+
+      if (result.status === 'success') {
+        this.transaction.status = 'success';
+        this.transaction.result = {
+          success: true,
+          message: 'İade başarılı',
+          refNumber: result.return_id
+        };
+        this.transaction.completedAt = new Date();
+        await this.transaction.save();
+
+        // Update original transaction
+        originalTransaction.status = 'refunded';
+        originalTransaction.refundedAt = new Date();
+        await originalTransaction.save();
+
+        return this.successResponse({
+          message: 'İade başarılı',
+          refNumber: result.return_id
+        });
+      } else {
+        this.transaction.status = 'failed';
+        this.transaction.result = {
+          success: false,
+          code: result.err_no || 'ERROR',
+          message: result.err_msg || 'İade başarısız'
+        };
+        await this.transaction.save();
+
+        return this.errorResponse(result.err_no, result.err_msg || 'İade başarısız');
+      }
+    } catch (error) {
+      await this.log('error', {}, { error: error.message });
+      this.transaction.status = 'failed';
+      this.transaction.result = {
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: error.message
+      };
+      await this.transaction.save();
+
+      return this.errorResponse('NETWORK_ERROR', error.message);
+    }
+  }
+
+  /**
+   * Encode form data
+   */
+  encodeForm(obj) {
+    const params = new URLSearchParams();
+    Object.entries(obj).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        params.append(key, String(value));
+      }
+    });
+    return params.toString();
+  }
 }
