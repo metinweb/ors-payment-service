@@ -73,6 +73,27 @@ export default class YKBProvider extends BaseProvider {
   }
 
   /**
+   * Convert comma-separated ASCII codes to actual bytes
+   * "124,74,123,119,124,45,82,37" -> "|J{w|-R%"
+   */
+  convertKeyToBytes(key) {
+    if (!key) return key;
+
+    // Eğer virgül içeriyorsa, ASCII kodlarından byte'lara çevir
+    if (key.includes(',')) {
+      try {
+        return key.split(',').map(n => String.fromCharCode(parseInt(n.trim()))).join('');
+      } catch (e) {
+        console.log('Key conversion failed, using original:', e.message);
+        return key;
+      }
+    }
+
+    // Virgül yoksa zaten doğru formatta
+    return key;
+  }
+
+  /**
    * Decrypt MerchantPacket using Triple DES CBC
    * YKB MerchantPacket format:
    * - First 16 hex chars: IV (8 bytes binary)
@@ -430,7 +451,15 @@ export default class YKBProvider extends BaseProvider {
     const currencyCode = formData?.currencyCode;
 
     // hashString(storekey + ';' + tid)
-    const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
+    // ÖNEMLI: secretKey comma-separated ise bytes'a çevir!
+    const storeKeyBytes = this.convertKeyToBytes(secretKey);
+    console.log('StoreKey conversion:', {
+      original: secretKey ? secretKey.substring(0, 20) + '...' : null,
+      converted: storeKeyBytes ? storeKeyBytes.substring(0, 10) + '...' : null,
+      wasConverted: secretKey !== storeKeyBytes
+    });
+
+    const hashedStoreKey = this.hashString(storeKeyBytes + ';' + terminalId);
 
     // MAC string'i oluştur - eski kodla AYNI FORMATTA
     const macString = xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey;
