@@ -252,12 +252,12 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
-      await this.log('init', request, { status: 'sending' });
 
       // Eski projeyle AYNI - Content-Type header YOK
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response birlikte
       await this.log('init', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -334,7 +334,8 @@ export default class YKBProvider extends BaseProvider {
       vftCode: 'K001'     // Eski kodda var - doğrulama kodu
     };
 
-    await this.log('3d_form', fields, { status: 'redirecting' });
+    // 3D yönlendirme log'u - response yok (kullanıcı bankaya yönlendiriliyor)
+    await this.log('3d_redirect', fields, { url: this.urls.gate });
 
     return this.generateFormHtml(this.urls.gate, fields);
   }
@@ -343,27 +344,25 @@ export default class YKBProvider extends BaseProvider {
    * Process 3D callback - Step 3: Verify and provision
    */
   async processCallback(postData) {
-    await this.log('3d_callback', postData, {});
-
     const { BankPacket, MerchantPacket, Sign } = postData;
 
     if (!MerchantPacket) {
+      await this.log('3d_callback', postData, { error: 'MerchantPacket yok' });
       this.transaction.status = 'failed';
       this.transaction.result = {
         success: false,
         code: 'NO_MERCHANT_PACKET',
         message: 'Banka yaniti alinamadi'
       };
-      await this.saveSecure();  // Use helper for Mixed type
+      await this.saveSecure();
       return { success: false, message: this.transaction.result.message };
     }
 
     // Decrypt merchant packet
     const { secretKey } = this.credentials;
-    console.log('YKB Callback - secretKey exists:', !!secretKey, 'length:', secretKey ? secretKey.length : 0);
 
     if (!secretKey) {
-      console.error('YKB ERROR: secretKey is empty or null!');
+      await this.log('3d_callback', postData, { error: 'SecretKey bulunamadi' });
       this.transaction.status = 'failed';
       this.transaction.result = {
         success: false,
@@ -377,15 +376,19 @@ export default class YKBProvider extends BaseProvider {
     const decrypted = this.decryptMerchantPacket(MerchantPacket, secretKey);
 
     if (!decrypted) {
+      await this.log('3d_callback', postData, { error: 'Decrypt basarisiz' });
       this.transaction.status = 'failed';
       this.transaction.result = {
         success: false,
         code: 'DECRYPT_ERROR',
         message: '3D dogrulama sifresi cozulemedi'
       };
-      await this.saveSecure();  // Use helper for Mixed type
+      await this.saveSecure();
       return { success: false, message: this.transaction.result.message };
     }
+
+    // 3D callback log'u - request: bankadan gelen, response: decrypt edilmiş veri
+    await this.log('3d_callback', postData, decrypted);
 
     // Store decrypted data
     this.transaction.secure = {
@@ -493,23 +496,11 @@ export default class YKBProvider extends BaseProvider {
     try {
       const xml = this.buildXml(request);
 
-      // XML'i logla
-      console.log('========== PROVISION XML ==========');
-      console.log(xml);
-      console.log('===================================');
-
-      await this.log('provision', request, { status: 'sending' });
-
       // Eski projeyle AYNI - Content-Type header YOK (axios default: text/plain)
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
-
-      // Raw response'u logla
-      console.log('========== PROVISION RAW RESPONSE ==========');
-      console.log(response.data);
-      console.log('=============================================');
-
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response birlikte
       await this.log('provision', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -580,13 +571,10 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
-      await this.log('provision', request, { status: 'sending' });
-
-      const response = await this.post(this.urls.api, 'xmldata=' + xml, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response
       await this.log('provision', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -653,11 +641,10 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
-      await this.log('refund', request, { status: 'sending' });
-
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response
       await this.log('refund', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -729,11 +716,10 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
-      await this.log('cancel', request, { status: 'sending' });
-
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response
       await this.log('cancel', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -801,11 +787,10 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
-      await this.log('status', request, { status: 'querying' });
-
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response
       await this.log('status', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -859,11 +844,10 @@ export default class YKBProvider extends BaseProvider {
     try {
       this.transaction.orderId = orderId;
       const xml = this.buildXml(request);
-      await this.log('pre_auth', request, { status: 'sending' });
-
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response
       await this.log('pre_auth', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
@@ -936,11 +920,10 @@ export default class YKBProvider extends BaseProvider {
 
     try {
       const xml = this.buildXml(request);
-      await this.log('post_auth', request, { status: 'sending' });
-
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
+      // Tek log: request + response
       await this.log('post_auth', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
