@@ -216,14 +216,17 @@ export default class PayTRProvider extends BaseProvider {
   async refund(originalTransaction) {
     const { merchantId, merchantSalt, merchantKey } = this.credentials;
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.merchant_oid;
+
     // PayTR refund hash: merchant_id + merchant_oid + return_amount + merchant_salt
     const returnAmount = Math.round(originalTransaction.amount * 100); // Kuruş cinsinden
-    const hashStr = merchantId + originalTransaction.orderId + returnAmount + merchantSalt;
+    const hashStr = merchantId + orgOrderId + returnAmount + merchantSalt;
     const paytrToken = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
 
     const refundData = {
       merchant_id: merchantId,
-      merchant_oid: originalTransaction.orderId,
+      merchant_oid: orgOrderId,
       return_amount: returnAmount,
       paytr_token: paytrToken,
       reference_no: '' // Opsiyonel

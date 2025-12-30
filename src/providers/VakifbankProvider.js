@@ -536,6 +536,9 @@ export default class VakifbankProvider extends BaseProvider {
   async refund(originalTransaction) {
     const { merchantId, password, terminalId } = this.credentials;
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.orderId;
+
     const refundXml = this.buildRefundXml({
       merchantId,
       password,
@@ -543,7 +546,7 @@ export default class VakifbankProvider extends BaseProvider {
       orderId: this.getOrderId(),
       amount: originalTransaction.amount.toFixed(2),
       currency: this.getCurrencyCode(),
-      refTransactionId: originalTransaction.result?.refNumber || originalTransaction.orderId
+      refTransactionId: originalTransaction.result?.refNumber || orgOrderId
     });
 
     try {
@@ -608,12 +611,15 @@ export default class VakifbankProvider extends BaseProvider {
   async cancel(originalTransaction) {
     const { merchantId, password, terminalId } = this.credentials;
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.orderId;
+
     const cancelXml = this.buildCancelXml({
       merchantId,
       password,
       terminalId,
-      orderId: originalTransaction.orderId,
-      refTransactionId: originalTransaction.result?.refNumber || originalTransaction.orderId
+      orderId: orgOrderId,
+      refTransactionId: originalTransaction.result?.refNumber || orgOrderId
     });
 
     try {

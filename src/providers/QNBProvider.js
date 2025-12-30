@@ -355,6 +355,9 @@ export default class QNBProvider extends BaseProvider {
     const amount = originalTransaction.amount.toFixed(2);
     const rnd = this.microtime();
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.OrderId;
+
     // Hash string for refund
     const hashStr = '5' + orderId + amount + '' + '' + 'Credit' + '0' + rnd + merchantPassword;
 
@@ -367,7 +370,7 @@ export default class QNBProvider extends BaseProvider {
       TxnType: 'Credit',
       Currency: this.getCurrencyCode(),
       OrderId: orderId,
-      OrgOrderId: originalTransaction.orderId,
+      OrgOrderId: orgOrderId,
       PurchAmount: amount,
       Lang: 'TR',
       Rnd: rnd,
@@ -445,6 +448,9 @@ export default class QNBProvider extends BaseProvider {
     const orderId = this.getOrderId();
     const rnd = this.microtime();
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.OrderId;
+
     // Hash string for cancel (Void)
     const hashStr = '5' + orderId + '' + '' + '' + 'Void' + '0' + rnd + merchantPassword;
 
@@ -457,7 +463,7 @@ export default class QNBProvider extends BaseProvider {
       TxnType: 'Void',
       Currency: this.getCurrencyCode(),
       OrderId: orderId,
-      OrgOrderId: originalTransaction.orderId,
+      OrgOrderId: orgOrderId,
       Lang: 'TR',
       Rnd: rnd,
       Hash: this.calculateHash(hashStr)
