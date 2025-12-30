@@ -438,7 +438,7 @@ export default class AkbankProvider extends BaseProvider {
 
     const requestData = {
       version: '1.00',
-      txnCode: '1003',  // Credit/Refund
+      txnCode: '1002',  // Refund
       requestDateTime: this.getRequestDateTime(),
       randomNumber: this.generateRandomNumber(),
       terminal: {
@@ -450,9 +450,7 @@ export default class AkbankProvider extends BaseProvider {
       },
       transaction: {
         amount: originalTransaction.amount,
-        currencyCode: this.getCurrencyCode(),
-        motoInd: 0,
-        installCount: originalTransaction.installment || 1
+        currencyCode: this.getCurrencyCode()
       }
     };
 
