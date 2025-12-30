@@ -129,10 +129,11 @@ export default class GarantiProvider extends BaseProvider {
     formData.cardexpiredateyear = this.formatExpiryYear(card.expiry);
     formData.cardexpiredatemonth = this.formatExpiryMonth(card.expiry);
 
-    // Store form data
+    // Store form data and orderId
     this.transaction.secure = this.transaction.secure || {};
     this.transaction.secure.formData = formData;
     this.transaction.secure.paymentModel = paymentModel;
+    this.transaction.orderId = orderId;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
     await this.log('init', { orderId, amount, currency, paymentModel, securityLevel });
@@ -953,6 +954,9 @@ export default class GarantiProvider extends BaseProvider {
 
     // For non-3D, include card number in hash
     const securityHash = this.generateProvisionHash(orderId, cardNumber, amount, currency);
+
+    // Save orderId to transaction
+    this.transaction.orderId = orderId;
 
     const paymentXml = this.buildDirectPaymentXml({
       mode: this.getMode(),

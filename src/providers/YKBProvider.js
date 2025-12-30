@@ -261,7 +261,7 @@ export default class YKBProvider extends BaseProvider {
       await this.log('init', request, result);
 
       if (result.approved === '1' || result.approved === 1) {
-        // Store OOS data for form
+        // Store OOS data for form and orderId
         this.transaction.secure = this.transaction.secure || {};
         this.transaction.secure.formData = {
           posnetData: result.oosRequestDataResponse?.data1,
@@ -273,6 +273,7 @@ export default class YKBProvider extends BaseProvider {
           amount: amount,
           currencyCode: currencyCode
         };
+        this.transaction.orderId = orderId;
 
         await this.saveSecure();  // Use helper for Mixed type
 
@@ -570,6 +571,9 @@ export default class YKBProvider extends BaseProvider {
     };
 
     try {
+      // Save orderId to transaction
+      this.transaction.orderId = orderId;
+
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);

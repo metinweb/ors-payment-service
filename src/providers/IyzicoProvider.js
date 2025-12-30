@@ -173,7 +173,7 @@ export default class IyzicoProvider extends BaseProvider {
       await this.log('init', { orderId }, response);
 
       if (response.status === 'success') {
-        // Store HTML content for form
+        // Store HTML content for form and orderId
         const htmlContent = Buffer.from(response.threeDSHtmlContent, 'base64').toString('utf-8');
 
         this.transaction.secure = this.transaction.secure || {};
@@ -181,6 +181,7 @@ export default class IyzicoProvider extends BaseProvider {
           orderId,
           htmlContent
         };
+        this.transaction.orderId = orderId;
 
         await this.saveSecure();  // Use helper for Mixed type
         return { success: true, html: htmlContent };
@@ -324,6 +325,9 @@ export default class IyzicoProvider extends BaseProvider {
     const orderId = this.getOrderId();
     const price = this.formatPrice(this.transaction.amount);
     const nameParts = this.splitName(card.holder || this.transaction.customer?.name);
+
+    // Save orderId to transaction
+    this.transaction.orderId = orderId;
 
     const paymentRequest = {
       locale: 'tr',

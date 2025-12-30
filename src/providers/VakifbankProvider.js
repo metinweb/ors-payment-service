@@ -112,7 +112,7 @@ export default class VakifbankProvider extends BaseProvider {
         const MD = result.Message.VERes.MD;
         const ACSUrl = result.Message.VERes.ACSUrl;
 
-        // Store 3D data
+        // Store 3D data and orderId
         this.transaction.secure = this.transaction.secure || {};
         this.transaction.secure.formData = {
           PaReq,
@@ -122,6 +122,7 @@ export default class VakifbankProvider extends BaseProvider {
           orderId,
           amount
         };
+        this.transaction.orderId = orderId;
 
         await this.saveSecure();  // Save formData (Mixed type needs markModified)
         return { success: true };
@@ -311,6 +312,9 @@ export default class VakifbankProvider extends BaseProvider {
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();
+
+    // Save orderId to transaction
+    this.transaction.orderId = orderId;
 
     const paymentXml = this.buildDirectPaymentXml({
       merchantId,

@@ -119,10 +119,11 @@ export default class PaytenProvider extends BaseProvider {
 
     formData.hash = this.generateHash(formData);
 
-    // Store form data
+    // Store form data and orderId
     this.transaction.secure = this.transaction.secure || {};
     this.transaction.secure.formData = formData;
     this.transaction.secure.paymentModel = paymentModel;
+    this.transaction.orderId = orderId;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
     await this.log('init', { orderId, paymentModel, storeType });
