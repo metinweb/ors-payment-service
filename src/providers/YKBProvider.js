@@ -254,12 +254,8 @@ export default class YKBProvider extends BaseProvider {
       const xml = this.buildXml(request);
       await this.log('init', request, { status: 'sending' });
 
-      // YKB için Content-Type header gerekli
-      const response = await this.post(this.urls.api, 'xmldata=' + xml, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8'
-        }
-      });
+      // Eski projeyle AYNI - Content-Type header YOK
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
       const result = await this.parseXml(response.data);
 
       await this.log('init', request, result);
@@ -504,10 +500,8 @@ export default class YKBProvider extends BaseProvider {
 
       await this.log('provision', request, { status: 'sending' });
 
-      // Form-urlencoded olarak gönder
-      const response = await this.post(this.urls.api, 'xmldata=' + xml, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' }
-      });
+      // Eski projeyle AYNI - Content-Type header YOK (axios default: text/plain)
+      const response = await this.post(this.urls.api, 'xmldata=' + xml);
 
       // Raw response'u logla
       console.log('========== PROVISION RAW RESPONSE ==========');
