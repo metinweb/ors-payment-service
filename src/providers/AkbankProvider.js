@@ -188,8 +188,8 @@ export default class AkbankProvider extends BaseProvider {
     const responseCode = postData.responseCode;
     const validStatuses = ['1'];
 
-    // Check for bank errors (responseCode starting with VPS-)
-    if (responseCode && responseCode.startsWith('VPS-')) {
+    // Check for bank errors (VPS-0000 is SUCCESS, others are errors)
+    if (responseCode && responseCode.startsWith('VPS-') && responseCode !== 'VPS-0000') {
       this.transaction.status = 'failed';
       this.transaction.result = {
         success: false,
