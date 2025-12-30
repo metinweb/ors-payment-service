@@ -266,29 +266,48 @@ export async function processCallback(transactionId, postData) {
 }
 
 /**
- * Get transaction status
+ * Get transaction status with related transactions
  */
 export async function getTransactionStatus(transactionId) {
   const transaction = await Transaction.findById(transactionId)
-    .populate('pos', 'name provider');
+    .populate('pos', 'name provider')
+    .populate('parentTransaction', 'orderId amount status type');
 
   if (!transaction) {
     return null;
   }
 
+  // Find child transactions (refunds/cancels)
+  const childTransactions = await Transaction.find({ parentTransaction: transactionId })
+    .select('_id type status amount result createdAt completedAt logs orderId')
+    .sort({ createdAt: -1 });
+
   return {
     id: transaction._id,
+    type: transaction.type,
     status: transaction.status,
     amount: transaction.amount,
     currency: transaction.currency,
     installment: transaction.installment,
+    orderId: transaction.orderId,
     card: {
       masked: transaction.card?.masked,
-      bin: transaction.card?.bin
+      maskedNumber: transaction.card?.maskedNumber,
+      bin: transaction.card?.bin,
+      cardFamily: transaction.card?.cardFamily,
+      cardType: transaction.card?.cardType,
+      cardBrand: transaction.card?.cardBrand,
+      bankName: transaction.card?.bankName
     },
+    pos: transaction.pos,
     result: transaction.result,
+    logs: transaction.logs,
     createdAt: transaction.createdAt,
-    completedAt: transaction.completedAt
+    completedAt: transaction.completedAt,
+    refundedAt: transaction.refundedAt,
+    cancelledAt: transaction.cancelledAt,
+    parentTransaction: transaction.parentTransaction,
+    childTransactions: childTransactions
   };
 }
 
