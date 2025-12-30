@@ -129,7 +129,8 @@ export default class AkbankProvider extends BaseProvider {
 
     formData.hash = this.calculateFormHash(formData);
 
-    // Store form data
+    // Store orderId and form data
+    this.transaction.orderId = orderId;
     this.transaction.secure = this.transaction.secure || {};
     this.transaction.secure.formData = formData;
 
@@ -323,6 +324,10 @@ export default class AkbankProvider extends BaseProvider {
 
     const orderId = this.getOrderId();
     const amount = this.formatAmount();
+
+    // Store orderId for refund/cancel operations
+    this.transaction.orderId = orderId;
+    await this.transaction.save();
 
     const requestData = {
       version: '1.00',
