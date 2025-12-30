@@ -535,12 +535,6 @@ export default class AkbankProvider extends BaseProvider {
       },
       order: {
         orderId: originalTransaction.orderId
-      },
-      transaction: {
-        amount: originalTransaction.amount,
-        currencyCode: this.getCurrencyCode(),
-        motoInd: 0,
-        installCount: originalTransaction.installment || 1
       }
     };
 
