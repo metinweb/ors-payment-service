@@ -450,7 +450,9 @@ export default class AkbankProvider extends BaseProvider {
       },
       transaction: {
         amount: originalTransaction.amount,
-        currencyCode: this.getCurrencyCode()
+        currencyCode: this.getCurrencyCode(),
+        motoInd: 0,
+        installCount: originalTransaction.installment || 1
       }
     };
 
@@ -536,7 +538,9 @@ export default class AkbankProvider extends BaseProvider {
       },
       transaction: {
         amount: originalTransaction.amount,
-        currencyCode: this.getCurrencyCode()
+        currencyCode: this.getCurrencyCode(),
+        motoInd: 0,
+        installCount: originalTransaction.installment || 1
       }
     };
 
