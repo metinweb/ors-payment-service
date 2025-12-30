@@ -452,13 +452,16 @@ export default class DenizbankProvider extends BaseProvider {
     const amount = originalTransaction.amount.toFixed(2);
     const rnd = this.microtime();
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.OrderId;
+
     // Hash string for refund
     const hashStr = shopCode + orderId + amount + '' + '' + 'Credit' + '' + rnd + merchantPassword;
 
     const refundData = {
       ShopCode: shopCode,
       OrderId: orderId,
-      OrgOrderId: originalTransaction.orderId,
+      OrgOrderId: orgOrderId,
       PurchAmount: amount,
       Currency: this.getCurrencyCode(),
       TxnType: 'Credit',
@@ -542,13 +545,16 @@ export default class DenizbankProvider extends BaseProvider {
     const orderId = this.getOrderId();
     const rnd = this.microtime();
 
+    // Get original orderId with fallback
+    const orgOrderId = originalTransaction.orderId || originalTransaction.secure?.formData?.OrderId;
+
     // Hash string for cancel (Void)
     const hashStr = shopCode + orderId + '' + '' + '' + 'Void' + '' + rnd + merchantPassword;
 
     const cancelData = {
       ShopCode: shopCode,
       OrderId: orderId,
-      OrgOrderId: originalTransaction.orderId,
+      OrgOrderId: orgOrderId,
       Currency: this.getCurrencyCode(),
       TxnType: 'Void',
       UserCode: userCode,
