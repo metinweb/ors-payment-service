@@ -108,9 +108,10 @@ export default class DenizbankProvider extends BaseProvider {
       Lang: 'tr'
     };
 
-    // Store form data
+    // Store form data and orderId
     this.transaction.secure = this.transaction.secure || {};
     this.transaction.secure.formData = formData;
+    this.transaction.orderId = orderId;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
     await this.log('init', { orderId, amount });
@@ -345,6 +346,10 @@ export default class DenizbankProvider extends BaseProvider {
     const orderId = this.getOrderId();
     const amount = this.formatAmount();
     const installment = this.formatInstallment();
+
+    // Save orderId to transaction
+    this.transaction.orderId = orderId;
+    await this.transaction.save();
 
     const paymentData = {
       ShopCode: shopCode,
