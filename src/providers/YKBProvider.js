@@ -257,7 +257,7 @@ export default class YKBProvider extends BaseProvider {
       // YKB için Content-Type header gerekli
       const response = await this.post(this.urls.api, 'xmldata=' + xml, {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8'
         }
       });
       const result = await this.parseXml(response.data);
@@ -447,19 +447,15 @@ export default class YKBProvider extends BaseProvider {
     // ).replace('+', '%2B')
 
     const xid = decrypted.xid;
-    const amount = formData?.amount;
-    const currencyCode = formData?.currencyCode;
+    // KRITIK: Eski kodda orijinal transaction tutarı kullanılıyor, formData değil!
+    // this.order.transaction.toAmount.value.toFixed(2).replace('.', '')
+    const amount = this.transaction.amount.toFixed(2).replace('.', '');
+    const currencyCode = this.getCurrencyCode();
 
-    // hashString(storekey + ';' + tid)
-    // ÖNEMLI: secretKey comma-separated ise bytes'a çevir!
-    const storeKeyBytes = this.convertKeyToBytes(secretKey);
-    console.log('StoreKey conversion:', {
-      original: secretKey ? secretKey.substring(0, 20) + '...' : null,
-      converted: storeKeyBytes ? storeKeyBytes.substring(0, 10) + '...' : null,
-      wasConverted: secretKey !== storeKeyBytes
-    });
+    // hashString(storekey + ';' + tid) - iç hash'e replace UYGULANMIYOR
+    console.log('MAC calculation - secretKey (first 20):', secretKey ? secretKey.substring(0, 20) : null);
 
-    const hashedStoreKey = this.hashString(storeKeyBytes + ';' + terminalId);
+    const hashedStoreKey = this.hashString(secretKey + ';' + terminalId);
 
     // MAC string'i oluştur - eski kodla AYNI FORMATTA
     const macString = xid + ';' + amount + ';' + currencyCode + ';' + merchantId + ';' + hashedStoreKey;
@@ -508,11 +504,9 @@ export default class YKBProvider extends BaseProvider {
 
       await this.log('provision', request, { status: 'sending' });
 
-      // Eski kodla AYNI şekilde gönder - Content-Type header ekle
+      // Form-urlencoded olarak gönder
       const response = await this.post(this.urls.api, 'xmldata=' + xml, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' }
       });
 
       // Raw response'u logla
