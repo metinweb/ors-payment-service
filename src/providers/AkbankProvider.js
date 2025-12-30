@@ -171,7 +171,7 @@ export default class AkbankProvider extends BaseProvider {
       creditCard: formData.creditCard.slice(0, 6) + '******' + formData.creditCard.slice(-4),
       cvv: '***'
     };
-    await this.log('3d_form', logData, { status: 'redirecting', url: this.urls.gate });
+    await this.log('3d_redirect', logData, { url: this.urls.gate });
 
     return this.generateFormHtml(this.urls.gate, formData);
   }
@@ -263,8 +263,6 @@ export default class AkbankProvider extends BaseProvider {
     try {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
-
-      await this.log('provision', requestData, { status: 'sending' });
 
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
@@ -361,8 +359,6 @@ export default class AkbankProvider extends BaseProvider {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
 
-      await this.log('provision', { orderId, amount }, { status: 'sending' });
-
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
           'auth-hash': hash,
@@ -373,7 +369,7 @@ export default class AkbankProvider extends BaseProvider {
       });
 
       const result = response.data;
-      await this.log('provision', { orderId }, result);
+      await this.log('provision', { orderId, amount }, result);
 
       if (result.hostResponseCode === '00') {
         this.transaction.status = 'success';
@@ -456,8 +452,6 @@ export default class AkbankProvider extends BaseProvider {
     try {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
-
-      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
@@ -545,8 +539,6 @@ export default class AkbankProvider extends BaseProvider {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
 
-      await this.log('cancel', { orderId: originalTransaction.orderId }, { status: 'sending' });
-
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
           'auth-hash': hash,
@@ -625,8 +617,6 @@ export default class AkbankProvider extends BaseProvider {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
 
-      await this.log('status', { orderId }, { status: 'querying' });
-
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
           'auth-hash': hash,
@@ -702,8 +692,6 @@ export default class AkbankProvider extends BaseProvider {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
 
-      await this.log('pre_auth', { orderId, amount }, { status: 'sending' });
-
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
           'auth-hash': hash,
@@ -714,7 +702,7 @@ export default class AkbankProvider extends BaseProvider {
       });
 
       const result = response.data;
-      await this.log('pre_auth', { orderId }, result);
+      await this.log('pre_auth', { orderId, amount }, result);
 
       if (result.hostResponseCode === '00') {
         this.transaction.status = 'success';
@@ -785,8 +773,6 @@ export default class AkbankProvider extends BaseProvider {
     try {
       const jsonString = JSON.stringify(requestData);
       const hash = this.calculateHash(jsonString);
-
-      await this.log('post_auth', { orderId: preAuthTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(this.urls.api, jsonString, {
         headers: {
