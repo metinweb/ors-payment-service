@@ -4,7 +4,7 @@ import { encrypt, decrypt, maskCardNumber } from '../config/encryption.js';
 const logEntrySchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['init', '3d_form', '3d_callback', 'provision', 'refund', 'cancel', 'status', 'pre_auth', 'post_auth', 'error']
+    enum: ['init', '3d_form', '3d_redirect', '3d_callback', 'provision', 'refund', 'cancel', 'status', 'pre_auth', 'post_auth', 'error']
   },
   request: mongoose.Schema.Types.Mixed,
   response: mongoose.Schema.Types.Mixed,
