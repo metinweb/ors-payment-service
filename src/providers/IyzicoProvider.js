@@ -168,7 +168,6 @@ export default class IyzicoProvider extends BaseProvider {
     };
 
     try {
-      await this.log('init', { orderId, price }, { status: 'sending' });
 
       const response = await this.sendRequest('/payment/3dsecure/initialize', paymentRequest);
       await this.log('init', { orderId }, response);
@@ -247,9 +246,8 @@ export default class IyzicoProvider extends BaseProvider {
       throw new Error('Form verisi bulunamadi');
     }
 
-    await this.log('3d_form', { orderId: formData.orderId }, { status: 'redirecting' });
-
-    // iyzico returns ready HTML, not form fields
+    // iyzico returns ready HTML, no redirect URL to log (HTML contains the form/redirect)
+    await this.log('3d_redirect', { orderId: formData.orderId }, { type: 'html_content' });
     return formData.htmlContent;
   }
 
@@ -379,7 +377,6 @@ export default class IyzicoProvider extends BaseProvider {
     };
 
     try {
-      await this.log('provision', { orderId, price }, { status: 'sending' });
 
       const response = await this.sendRequest('/payment/auth', paymentRequest);
       await this.log('provision', { orderId }, response);
@@ -454,7 +451,6 @@ export default class IyzicoProvider extends BaseProvider {
     };
 
     try {
-      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await this.sendRequest('/payment/refund', refundRequest);
       await this.log('refund', { orderId: originalTransaction.orderId }, response);
@@ -517,7 +513,6 @@ export default class IyzicoProvider extends BaseProvider {
     };
 
     try {
-      await this.log('cancel', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await this.sendRequest('/payment/cancel', cancelRequest);
       await this.log('cancel', { orderId: originalTransaction.orderId }, response);

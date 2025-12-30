@@ -125,7 +125,7 @@ export default class PaytenProvider extends BaseProvider {
     this.transaction.secure.paymentModel = paymentModel;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
-    await this.log('init', { orderId, paymentModel, storeType }, { status: 'prepared' });
+    await this.log('init', { orderId, paymentModel, storeType });
 
     return { success: true };
   }
@@ -136,8 +136,7 @@ export default class PaytenProvider extends BaseProvider {
       throw new Error('Form verisi bulunamadı');
     }
 
-    await this.log('3d_form', formData, { status: 'redirecting' });
-
+    await this.log('3d_redirect', { url: this.urls.gate }, formData);
     return this.generateFormHtml(this.urls.gate, formData);
   }
 
@@ -342,7 +341,6 @@ export default class PaytenProvider extends BaseProvider {
 
     try {
       this.transaction.orderId = orderId;
-      await this.log('provision', request, { status: 'sending' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);
@@ -413,7 +411,6 @@ export default class PaytenProvider extends BaseProvider {
     });
 
     try {
-      await this.log('refund', request, { status: 'sending' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);
@@ -478,7 +475,6 @@ export default class PaytenProvider extends BaseProvider {
     });
 
     try {
-      await this.log('cancel', request, { status: 'sending' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);
@@ -540,7 +536,6 @@ export default class PaytenProvider extends BaseProvider {
     });
 
     try {
-      await this.log('status', request, { status: 'querying' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);
@@ -576,7 +571,6 @@ export default class PaytenProvider extends BaseProvider {
     });
 
     try {
-      await this.log('history', request, { status: 'querying' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);
@@ -615,7 +609,6 @@ export default class PaytenProvider extends BaseProvider {
 
     try {
       this.transaction.orderId = orderId;
-      await this.log('pre_auth', request, { status: 'sending' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);
@@ -677,7 +670,6 @@ export default class PaytenProvider extends BaseProvider {
     });
 
     try {
-      await this.log('post_auth', request, { status: 'sending' });
 
       const xml = this.buildXml(request);
       const response = await this.post(this.urls.api, 'DATA=' + xml);

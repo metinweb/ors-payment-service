@@ -93,8 +93,6 @@ export default class VakifbankProvider extends BaseProvider {
     }
 
     try {
-      await this.log('init', enrollmentData, { status: 'verifying' });
-
       const response = await axios.post(
         this.urls.gate,
         this.encodeForm(enrollmentData),
@@ -163,8 +161,7 @@ export default class VakifbankProvider extends BaseProvider {
       MD: formData.MD
     };
 
-    await this.log('3d_form', fields, { status: 'redirecting' });
-
+    await this.log('3d_redirect', { url: formData.ACSUrl }, fields);
     return this.generateFormHtml(formData.ACSUrl, fields);
   }
 
@@ -225,7 +222,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('provision', { orderId, amount }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -333,7 +329,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('provision', { orderId, amount }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -548,7 +543,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -619,7 +613,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('cancel', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -686,7 +679,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('status', { orderId }, { status: 'querying' });
 
       const response = await axios.post(
         this.urls.api,
@@ -743,7 +735,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('pre_auth', { orderId, amount }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -813,7 +804,6 @@ export default class VakifbankProvider extends BaseProvider {
     });
 
     try {
-      await this.log('post_auth', { orderId: preAuthTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,

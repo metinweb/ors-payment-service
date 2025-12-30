@@ -69,7 +69,7 @@ export default class SigmapayProvider extends BaseProvider {
     this.transaction.secure.formData = formData;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
-    await this.log('init', { orderId, amount, signatureStr }, { status: 'prepared' });
+    await this.log('init', { orderId, amount, signatureStr });
 
     return { success: true };
   }
@@ -80,11 +80,10 @@ export default class SigmapayProvider extends BaseProvider {
       throw new Error('Form verisi bulunamadi');
     }
 
-    await this.log('3d_form', formData, { status: 'redirecting' });
-
     // Sigmapay gate URL
     const sigmapayUrl = this.urls.gate || 'https://pay.sigmapay.com/pay';
 
+    await this.log('3d_redirect', { url: sigmapayUrl }, formData);
     return this.generateFormHtml(sigmapayUrl, formData);
   }
 

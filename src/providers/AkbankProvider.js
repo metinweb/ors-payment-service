@@ -142,7 +142,7 @@ export default class AkbankProvider extends BaseProvider {
       creditCard: formData.creditCard.slice(0, 6) + '******' + formData.creditCard.slice(-4),
       cvv: '***'
     };
-    await this.log('init', logData, { status: 'prepared', url: this.urls.gate });
+    await this.log('init', logData);
 
     return { success: true };
   }

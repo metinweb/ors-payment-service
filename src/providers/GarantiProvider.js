@@ -135,7 +135,7 @@ export default class GarantiProvider extends BaseProvider {
     this.transaction.secure.paymentModel = paymentModel;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
-    await this.log('init', { orderId, amount, currency, paymentModel, securityLevel }, { status: 'prepared' });
+    await this.log('init', { orderId, amount, currency, paymentModel, securityLevel });
 
     return { success: true };
   }
@@ -175,8 +175,7 @@ export default class GarantiProvider extends BaseProvider {
       throw new Error('Form verisi bulunamadı');
     }
 
-    await this.log('3d_form', formData, { status: 'redirecting' });
-
+    await this.log('3d_redirect', { url: this.urls.gate }, formData);
     return this.generateFormHtml(this.urls.gate, formData);
   }
 
@@ -292,7 +291,6 @@ export default class GarantiProvider extends BaseProvider {
     });
 
     try {
-      await this.log('provision', { orderId, amount }, { status: 'sending' });
 
       const response = await this.post(this.urls.api, 'data=' + provisionXml);
       const result = await this.parseXml(response.data);
@@ -422,7 +420,6 @@ export default class GarantiProvider extends BaseProvider {
     });
 
     try {
-      await this.log('refund', { orderId, amount }, { status: 'sending' });
 
       const response = await this.post(this.urls.api, 'data=' + refundXml);
       const result = await this.parseXml(response.data);
@@ -536,7 +533,6 @@ export default class GarantiProvider extends BaseProvider {
     });
 
     try {
-      await this.log('cancel', { orderId, amount }, { status: 'sending' });
 
       const response = await this.post(this.urls.api, 'data=' + cancelXml);
       const result = await this.parseXml(response.data);
@@ -644,7 +640,6 @@ export default class GarantiProvider extends BaseProvider {
     });
 
     try {
-      await this.log('status', { orderId }, { status: 'querying' });
 
       const response = await this.post(this.urls.api, 'data=' + statusXml);
       const result = await this.parseXml(response.data);
@@ -741,7 +736,6 @@ export default class GarantiProvider extends BaseProvider {
     try {
       // Store orderId for later postAuth
       this.transaction.orderId = orderId;
-      await this.log('pre_auth', { orderId, amount }, { status: 'sending' });
 
       const response = await this.post(this.urls.api, 'data=' + preAuthXml);
       const result = await this.parseXml(response.data);
@@ -860,7 +854,6 @@ export default class GarantiProvider extends BaseProvider {
     });
 
     try {
-      await this.log('post_auth', { orderId, amount }, { status: 'sending' });
 
       const response = await this.post(this.urls.api, 'data=' + postAuthXml);
       const result = await this.parseXml(response.data);
@@ -978,7 +971,6 @@ export default class GarantiProvider extends BaseProvider {
     });
 
     try {
-      await this.log('provision', { orderId, amount }, { status: 'sending' });
 
       const response = await this.post(this.urls.api, 'data=' + paymentXml);
       const result = await this.parseXml(response.data);

@@ -106,7 +106,7 @@ export default class PayTRProvider extends BaseProvider {
     this.transaction.secure.formData = formData;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
-    await this.log('init', { orderId, amount }, { status: 'prepared' });
+    await this.log('init', { orderId, amount });
 
     return { success: true };
   }
@@ -144,14 +144,14 @@ export default class PayTRProvider extends BaseProvider {
       throw new Error('Form verisi bulunamadi');
     }
 
-    await this.log('3d_form', formData, { status: 'redirecting' });
-
     // PayTR uses POST to their endpoint
     const paytrUrl = this.pos.testMode
       ? 'https://www.paytr.com/odeme/guvenli/test'
       : 'https://www.paytr.com/odeme/guvenli';
 
-    return this.generateFormHtml(this.urls.gate || paytrUrl, formData);
+    const targetUrl = this.urls.gate || paytrUrl;
+    await this.log('3d_redirect', { url: targetUrl }, formData);
+    return this.generateFormHtml(targetUrl, formData);
   }
 
   async processCallback(postData) {
@@ -229,7 +229,6 @@ export default class PayTRProvider extends BaseProvider {
     };
 
     try {
-      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         'https://www.paytr.com/odeme/iade',

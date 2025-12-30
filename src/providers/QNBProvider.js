@@ -103,7 +103,7 @@ export default class QNBProvider extends BaseProvider {
     this.transaction.secure.formData = formData;
 
     await this.saveSecure();  // Save formData FIRST (Mixed type needs markModified)
-    await this.log('init', { orderId, amount }, { status: 'prepared' });
+    await this.log('init', { orderId, amount });
 
     return { success: true };
   }
@@ -114,8 +114,7 @@ export default class QNBProvider extends BaseProvider {
       throw new Error('Form verisi bulunamadi');
     }
 
-    await this.log('3d_form', formData, { status: 'redirecting' });
-
+    await this.log('3d_redirect', { url: this.urls.gate }, formData);
     return this.generateFormHtml(this.urls.gate, formData);
   }
 
@@ -165,7 +164,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('provision', paymentData, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -274,7 +272,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('provision', { orderId, amount }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -374,7 +371,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('refund', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -464,7 +460,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('cancel', { orderId: originalTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -539,7 +534,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('status', { orderId }, { status: 'querying' });
 
       const response = await axios.post(
         this.urls.api,
@@ -603,7 +597,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('pre_auth', { orderId, amount }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
@@ -684,7 +677,6 @@ export default class QNBProvider extends BaseProvider {
     };
 
     try {
-      await this.log('post_auth', { orderId: preAuthTransaction.orderId }, { status: 'sending' });
 
       const response = await axios.post(
         this.urls.api,
